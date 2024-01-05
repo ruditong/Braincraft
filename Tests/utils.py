@@ -105,18 +105,33 @@ class Integrator(DynamicBuffer):
         super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin)
         self.inputs = inputs
         # Check weights
-        if type(weights) is not list: self.weights = [weights/len(inputs)] * len(inputs)
-        else: self.weights = weights
+        self.setWeights(weights)
 
         # Check transmission delay
-        if type(delay) is not list: delay = [delay] * len(inputs)
-        self.delay = [int(d/dt)+1 for d in delay] # append one since we are counting backwards
+        self.setDelays(delay)
 
         # Make sure weights, delays, and inputs have same dimensions
-        assert len(self.inputs) == len(delay)
-        assert len(self.inputs) == len(self.weights)
+        # assert len(self.inputs) == len(self.delay)
+        # assert len(self.inputs) == len(self.weights)
 
         self.func = lambda: func(self._integrate(), self.databuffer)
+
+    def setInputs(self, inputs):
+        '''Set new inputs'''
+        self.inputs = inputs
+
+    def setWeights(self, weights):
+        '''Set new weights'''
+        if type(weights) is not list: self.weights = [weights/len(self.inputs)] * len(self.inputs)
+        elif len(weights) < len(self.inputs): self.weights = weights + [0]*(len(self.inputs) - len(weights))
+        else: self.weights = weights
+
+    def setDelays(self, delays):
+        '''Set new delays'''
+        # Check transmission delay
+        if type(delays) is not list: delays = [delays] * len(self.inputs)
+        elif len(delays) < len(self.inputs): delays = delays + [0]*(len(self.inputs) - len(delays))
+        self.delay = [int(d/self.dt)+1 for d in delays] # append one since we are counting backwards
 
     def _integrate(self):
         '''Sum over the last entries in inputs'''

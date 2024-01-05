@@ -6,6 +6,7 @@ Implements user interface for interacting with electrical circuit
 
 import sys
 import time
+import re
 from utils import *
 import numpy as np
 import matplotlib.pyplot as pl
@@ -15,7 +16,13 @@ from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QApplication, QVBoxLayout, 
     QComboBox, QStackedLayout, QFormLayout, QLineEdit,
     QTabWidget,QHBoxLayout, QCheckBox, QPushButton,
-    QMainWindow, QStatusBar, QRadioButton, QLabel)
+    QMainWindow, QStatusBar, QRadioButton, QLabel,
+    QScrollArea)
+
+def find_numbers(s):
+    '''Given a string s, return a list of all numbers'''
+    n = [float(i) for i in re.findall(r"[-+]?(?:\d*\.*\d+)", s)]
+    return n
 
 # Keep track of used pins
 INPINS = []
@@ -146,7 +153,12 @@ class GUI(QWidget):
             buffer.visible = params['visible']
 
         elif params['type'] == 'Integrator':
-            pass
+            inputs = find_numbers(params['neuron'])
+            inputbuffers = [self.buffers[int(i)] for i in inputs]
+            weights = find_numbers(params['weights'])
+            delays = find_numbers(params['delays'])
+            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights)
+            buffer.visible=params['visible']
 
         self.buffers.append(buffer)
         self.plotter.addDataStream(buffer, color=np.array(pl.cm.tab10(len(self.buffers)-1))[:-1]*255)
@@ -178,9 +190,9 @@ class GUI(QWidget):
         
         # Now go through params and change the buffer accordingly
         # Check for trigger
-        trigger, outpin, threshold = params['trigger'], int(params['outpin']), float(params['threshold'])
-        if trigger: self.buffers[id].setTrigger(threshold, outpin)
-        else: self.buffers[id].setTrigger(None, outpin)
+        trigger, outpin, threshold = params['trigger'], params['outpin'], params['threshold']
+        if trigger: self.buffers[id].setTrigger(float(threshold), int(outpin))
+        else: self.buffers[id].setTrigger(None, None)
 
         # Check for functions
         relu, sigmoid, invert, kernel = params['relu'], params['sigmoid'], params['invert'], params['kernel']
@@ -191,6 +203,20 @@ class GUI(QWidget):
         self.buffers[id].setFunc(func=func)
         self.buffers[id].relu = relu
         self.buffers[id].invert = invert
+
+        # Check for integrator parameters
+        if params['type'] == 'Integrator':
+            # Inputs
+            inputs = find_numbers(params['neuron'])
+            inputbuffers = [self.buffers[int(i)] for i in inputs]
+            self.buffers[id].setInputs(inputbuffers)
+            # Weights
+            weights = find_numbers(params['weights'])
+            self.buffers[id].setWeights(weights)
+            # Delays
+            delays = find_numbers(params['delays'])
+            self.buffers[id].setDelays(delays)
+
 
     def update(self):
         '''Update plots'''
@@ -260,6 +286,7 @@ class ParameterPage(QWidget):
         super().__init__()
         self.type = type
         self.outputs = {}
+        self.id = id
 
         # Depending on the type, create different page formats
         layout = QVBoxLayout()
@@ -292,6 +319,7 @@ class ParameterPage(QWidget):
             self.outputs['delays'] = QLineEdit(params.get('delays', '0'))
             pagelayout.addRow(f"Delays", self.outputs['delays'])
             
+        pagelayout.setVerticalSpacing(1)
         layout.addLayout(pagelayout, 5) 
 
         # Checkbox parameters
@@ -320,6 +348,7 @@ class ParameterPage(QWidget):
         if params.get('visible', True): self.outputs['visible'].setChecked(True)
         checklayout.addWidget(self.outputs['visible'], 2, 1)
               
+        checklayout.setSpacing(0)
         layout.addLayout(checklayout, 5)
         self.setLayout(layout)
     
@@ -340,9 +369,19 @@ class ParameterPage(QWidget):
             assert output.get('outpin').isdigit()
             assert (int(output.get('outpin')) >=0) & (int(output.get('outpin')) <= 27)
 
-        assert int(output.get('outpin')) != int(output.get('inpin'))
-        assert int(output.get('outpin')) not in INPINS
-        INPINS.append(int(output.get('inpin')))
+
+        if output.get('outpin').isdigit():
+            # For inputs test if outpin is inpin
+            assert int(output.get('outpin')) not in INPINS
+            if output['type'] == 'Input':
+                assert int(output.get('outpin')) != int(output.get('inpin'))
+                INPINS.append(int(output.get('inpin')))
+
+        # For integrator, check for recursions
+        if output['type'] == 'Integrator':
+            # Retrieve inputs
+            inputs = [int(i) for i in find_numbers(output['neuron'])]
+            assert self.id not in inputs
 
         return output
 
@@ -444,7 +483,7 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
     def setYrange(self):
         '''Update yrange to fit all plots'''
         ncurves = np.array([curve.buffer.visible for curve in self.curves]).sum()
-        self.plot.setYRange(-0.5, 2*(ncurves-1)+1.5, padding=0)
+        self.plot.setYRange(-1, 2*(ncurves-1)+1.5, padding=0)
 
 class Curve():
     '''Curve for ploatting datastreams'''
@@ -513,6 +552,7 @@ class NeuronConstructor(QWidget):
 if __name__ == '__main__':
     setup()
     app = QApplication(sys.argv)
+    app.setStyleSheet("QWidget{font-size: 11pt;}")
     window = MainWindow(app)
     window.run()
     close()
