@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QStatusBar, QRadioButton, QLabel,
     QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsLineItem)
+from test import *
 
 def find_numbers(s):
     '''Given a string s, return a list of all numbers'''
@@ -60,7 +61,8 @@ class GUI(QWidget):
         # Create a Gridlayout
         layout = QGridLayout()
         # Add widgets
-        self.painter = Painter()
+        # self.painter = Painter()
+        self.painter = TestPainter()
         layout.addWidget(self.painter, 0, 0)
 
         # Add Info bar
@@ -251,7 +253,6 @@ class Painter(QGraphicsView):
         self.addCircle("End", pos=(50,50))
         # self.addLine(self.circles[0], self.circles[1])
         
-
     def addCircle(self, label='', pos=(0,0), radius=50):
         '''Add a circle with label and position'''
         circle = Circle(label, QtCore.QRectF(pos[0], pos[1],radius, radius))
@@ -267,7 +268,7 @@ class Painter(QGraphicsView):
     def paintEvent(self, event):
         '''Define pain event handler'''
         super().paintEvent(event)
-        
+
 class Circle(QGraphicsEllipseItem):
     '''Circle representing simulation elements'''
     def __init__(self, label='', *args, **kwargs):
@@ -624,6 +625,16 @@ class NeuronConstructor(QWidget):
     def getParams(self):
         '''Call the getParams function of the current page'''
         return self.parameters.currentWidget().getParams()
+
+class TestPainter(QGraphicsView):
+    def __init__(self):
+        super().__init__()
+        self.scene = Scene()
+        self.setScene(self.scene)
+        self.scene.addItem(CustomItem(left=1))
+        self.scene.addItem(CustomItem(right=1))
+
+        self.setRenderHint(QtGui.QPainter.Antialiasing)
 
 
 if __name__ == '__main__':
