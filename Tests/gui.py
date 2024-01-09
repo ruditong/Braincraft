@@ -6,18 +6,19 @@ Implements user interface for interacting with electrical circuit
 
 import sys
 import time
-import re
+import re, random
 from utils import *
 import numpy as np
 import matplotlib.pyplot as pl
 import pyqtgraph as pg
-from PyQt5 import QtCore
+from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QApplication, QVBoxLayout, 
     QComboBox, QStackedLayout, QFormLayout, QLineEdit,
     QTabWidget,QHBoxLayout, QCheckBox, QPushButton,
     QMainWindow, QStatusBar, QRadioButton, QLabel,
-    QScrollArea)
+    QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
+    QGraphicsItem, QGraphicsLineItem)
 
 def find_numbers(s):
     '''Given a string s, return a list of all numbers'''
@@ -59,15 +60,16 @@ class GUI(QWidget):
         # Create a Gridlayout
         layout = QGridLayout()
         # Add widgets
-        layout.addWidget(pg.PlotWidget(), 0, 0)
+        self.painter = Painter()
+        layout.addWidget(self.painter, 0, 0)
 
         # Add Info bar
         self.info = self.createInfo()
-        layout.addWidget(self.info, 0, 1)
+        layout.addWidget(self.info, 0, 1, 2, 1)
 
         # Add dynamic plotter
         self.plotter = DynamicPlotter(dt=0.01)
-        layout.addWidget(self.plotter, 1, 0, 1, 2)
+        layout.addWidget(self.plotter, 1, 0)
 
         # Scale the widgets correctly
         layout.setColumnStretch(0, 6)
@@ -79,7 +81,7 @@ class GUI(QWidget):
 
         # Set up simulation clock
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update)
+        self.timer.timeout.connect(self.updateSimulation)
 
         # Misc attributes
         self.time = 0
@@ -217,12 +219,11 @@ class GUI(QWidget):
             delays = find_numbers(params['delays'])
             self.buffers[id].setDelays(delays)
 
-
-    def update(self):
+    def updateSimulation(self):
         '''Update plots'''
         # Only update plotter if "Run"-checkbox is checked
         if self.info.simulation.checkBox.isChecked():
-            self.plotter.update()
+            self.plotter.updateSimulation()
 
             # Display update FPS
             self.counter += 1
@@ -234,6 +235,82 @@ class GUI(QWidget):
                 self.statusBar.showMessage(f"FPS = {freq: .1f} Hz")
 
         self.app.processEvents()
+
+class Painter(QGraphicsView):
+    '''Visualizer for neuronal connectivity. Mirrors the simulation setup and allow for user interaction'''
+    def __init__(self):
+        super().__init__()
+        self.scene = QGraphicsScene()
+        self.setScene(self.scene)
+
+        self.setRenderHint(QtGui.QPainter.Antialiasing)
+        self.circles = []
+        self.lines = []
+
+        self.addCircle("Start", pos=(-10,-10))
+        self.addCircle("End", pos=(50,50))
+        # self.addLine(self.circles[0], self.circles[1])
+        
+
+    def addCircle(self, label='', pos=(0,0), radius=50):
+        '''Add a circle with label and position'''
+        circle = Circle(label, QtCore.QRectF(pos[0], pos[1],radius, radius))
+        self.circles.append(circle)
+        self.scene.addItem(self.circles[-1])
+
+    def addLine(self, start, end):
+        '''Add a connection between cicrles'''
+        line = Line(start, end)
+        self.lines.append(line)
+        self.scene.addItem(self.lines[-1])
+
+    def paintEvent(self, event):
+        '''Define pain event handler'''
+        super().paintEvent(event)
+        
+class Circle(QGraphicsEllipseItem):
+    '''Circle representing simulation elements'''
+    def __init__(self, label='', *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFlags(
+            self.flags()
+            | QGraphicsItem.ItemSendsGeometryChanges
+            | QGraphicsItem.ItemIsMovable
+            | QGraphicsItem.ItemIsSelectable
+        )
+        self.label = label  
+        self.setPen(QtGui.QPen(QtGui.QColor("black"), 5))
+    
+    def itemChange(self, change, value):
+        if (
+            change == QGraphicsItem.ItemPositionChange
+        ):
+            return value
+        return super().itemChange(change, value)
+
+    def paint(self, painter, option, widget=0):
+        super().paint(painter, option, widget)
+        painter.drawText(self.boundingRect(), QtCore.Qt.AlignCenter, self.label)
+
+class Line(QGraphicsLineItem):
+    '''Line representing connection between neurons'''
+    def __init__(self, start, end, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFlags(
+            self.flags()
+            | QGraphicsItem.ItemSendsGeometryChanges
+            | QGraphicsItem.ItemIsSelectable
+        )
+        self.setPen(QtGui.QPen(QtGui.QColor("black"), 5))
+        self.addItem(start)
+        self.adItem(end)
+        self.setHandlesChildEvents(True)
+        self.start = start
+        self.end = end
+
+    def paint(self, painter, option, widget=0):
+        self.setLine(self.start.rect().x(), self.start.rect().y(), self.end.rect().x(), self.end.rect().y())
+        super().paint(painter, option, widget)
 
 class Parameters(QWidget):
     '''Window to display and change parameters'''
@@ -458,7 +535,7 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
         # Prepare container for curves
         self.curves = []
 
-    def update(self):
+    def updateSimulation(self):
         '''Retrieve real time data and update plot'''
         offset = 0
         for i, curve in enumerate(self.curves): 
