@@ -57,12 +57,12 @@ class GUI(QWidget):
         self.app = app
         self.statusBar = statusbar
         self.buffers = []
+        self.skipplotframes = 2
 
         # Create a Gridlayout
         layout = QGridLayout()
         # Add widgets
-        # self.painter = Painter()
-        self.painter = Canvas(500,500)
+        self.painter = self.createPainter()
         layout.addWidget(self.painter, 0, 0)
 
         # Add Info bar
@@ -70,7 +70,7 @@ class GUI(QWidget):
         layout.addWidget(self.info, 0, 1, 2, 1)
 
         # Add dynamic plotter
-        self.plotter = DynamicPlotter(dt=0.01)
+        self.plotter = DynamicPlotter(dt=0.01, skipframes=self.skipplotframes)
         layout.addWidget(self.plotter, 1, 0)
 
         # Scale the widgets correctly
@@ -88,27 +88,107 @@ class GUI(QWidget):
         # Misc attributes
         self.time = 0
         self.counter = 0
-        self.skipframes = 10
+        self.skipframes = int(0.2/dt)
 
     def createInfo(self):
         '''Create an InfoBar widget'''
         info = InfoBar()
         self.constructorWindow = None
+        self.connectionWindow = None
         info.simulation.apply.clicked.connect(self._apply_button)
         info.simulation.construct.clicked.connect(self._construct_button)
         info.simulation.showCheck.clicked.connect(self._toggle_show)
         info.parameters.updatebutton.clicked.connect(self._update_button)
+        info.parameters.removebutton.clicked.connect(self._remove_button)
         return info
+
+    def createPainter(self):
+        '''Create painter widget and connect functions'''
+        painter = Canvas()
+        painter.scene.mouseRelease = self._painter_release
+        painter.scene.mousePress = self._painter_press
+        return painter
+    
+    def removeBuffer(self, id):
+        '''Remove a buffer and update all other ids'''
+        self.buffers.pop(id)
+        self.info.parameters.removePage(id)
+
+    def _remove_button(self):
+        '''Remove the neuron and update all IDs and visualizer'''
+        if len(self.buffers) == 0: return 
+        id = self.info.parameters.pageCombo.currentIndex()
+        self.removeBuffer(id)
+        self.painter.scene.removeNeuron(id)
+        self.plotter.removeNeuron(id)
+
+    def _painter_release(self, startId, endId, success):
+        '''Add and remove connections from painter'''
+        if success:
+            # Add this connection
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['neuron']
+            text = find_numbers(widget.text())
+            text.append(startId)
+            widget.setText(','.join(map(str,map(int,text))))
+            nInputs = len(text)
+
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['weights']
+            text = find_numbers(widget.text())
+            if len(text) != nInputs: text.append(1.0)
+            widget.setText(','.join(map(str,text)))
+
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['delays']
+            text = find_numbers(widget.text())
+            if len(text) != nInputs: text.append(0.0)
+            widget.setText(','.join(map(str,text)))
+            self.updateBuffer(endId)
+
+        else:
+            # Remove this connection
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['neuron']
+            text = find_numbers(widget.text())
+            index = text.index(startId)
+            text.remove(startId)
+            widget.setText(','.join(map(str,map(int,text))))
+
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['weights']
+            text = find_numbers(widget.text())
+            if len(text) > 1: text.pop(index)
+            else: text.pop()
+            widget.setText(','.join(map(str,text)))
+
+            widget = self.info.parameters.stackedLayout.widget(endId).outputs['delays']
+            text = find_numbers(widget.text())
+            if len(text) > 1: text.pop(index)
+            else: text.pop()
+            widget.setText(','.join(map(str,text)))
+            self.updateBuffer(endId)
+  
+    def _painter_press(self, item):
+        '''Change to inspector page'''
+        if (item is not None) and (isinstance(item, Neuron)):
+            self.info.tabs.setCurrentIndex(1)
+            self.info.parameters.pageCombo.setCurrentIndex(item.id)
+            self.info.parameters.switchPage()
+        elif (item is not None) and (isinstance(item, Connection)):
+            if self.connectionWindow is None:
+                self.connectionWindow = ConnectionWindow(item.weight, item.delay, item.start.id, item.end.id)
+                self.connectionWindow.submit.clicked.connect(self._connect_submit)
+                self.connectionWindow.closeEvent = lambda *x: self._connect_submit(close=True)
+            self.connectionWindow.show()
+        return
 
     def _apply_button(self):
         '''Apply new settings fo the plotter'''
         # Retrieve parameters
         T = float(self.info.simulation.T.text())
         dt = float(self.info.simulation.dt.text())
+        skip = int(self.info.simulation.ds.text())
         # Check that values are proper
         try:
             assert (T > 0) & (dt > 0.001) & (T > dt) 
             assert (T/dt < 1e5)
+            assert skip > 0
         except AssertionError:
             return
         
@@ -119,6 +199,11 @@ class GUI(QWidget):
         self.dt = dt
         self.timer.stop()
         self.timer.start(int(self.dt*1000))
+        self.skipframes = int(0.2/dt)
+
+        # Update downsampleing
+        self.skipplotframes = skip
+        self.plotter.skipframes = self.skipplotframes
 
     def _construct_button(self):
         '''Open new window to create a new neuron'''
@@ -170,10 +255,10 @@ class GUI(QWidget):
             buffer.visible=params['visible']
 
         self.buffers.append(buffer)
-        self.plotter.addDataStream(buffer, color=np.array(pl.cm.tab10(len(self.buffers)-1))[:-1]*255)
-        self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2, self.painter.scene.height()/2]), 
-                                     color=np.array(pl.cm.tab10(len(self.buffers)-1))[:-1]*255, 
-                                     label=str(len(self.buffers)-1), buffer=buffer)
+        self.plotter.addDataStream(buffer, color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255)
+        self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2-NEURONRADIUS, self.painter.scene.height()/2-NEURONRADIUS]), 
+                                     color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255, 
+                                     label=str(len(self.buffers)-1), buffer=buffer, id=len(self.buffers)-1, typ=params['type'])
 
         # Add a page to parameters
         page = self.info.parameters.addPage(name=params['name'], typ=params['type'], params=params, readonly=True, id=len(self.buffers)-1)
@@ -190,6 +275,43 @@ class GUI(QWidget):
         self.constructorWindow.close()
         self.constructorWindow = None
 
+    def _connect_submit(self, close=False):
+        '''Close he constructor'''
+        # Get parameter and update
+        if close:
+            self.connectionWindow.close()
+            self.connectionWindow = None
+            return
+        try: 
+            weight = float(self.connectionWindow.weight.text())
+            delay = float(self.connectionWindow.delay.text())
+        except: 
+            print("Parameters wrong format!")
+            self.connectionWindow.close()
+            self.connectionWindow = None
+            return
+        
+        # Edit parameters
+        page = self.info.parameters.stackedLayout.widget(self.connectionWindow.end)
+
+        widget = page.outputs['neuron']
+        text = find_numbers(widget.text())
+        index = text.index(self.connectionWindow.start)
+
+        widget = page.outputs['weights']
+        text = find_numbers(widget.text())
+        text[index] = weight
+        widget.setText(','.join(map(str,text)))
+
+        widget = page.outputs['delays']
+        text = find_numbers(widget.text())
+        text[index] = delay
+        widget.setText(','.join(map(str,text)))
+        self.updateBuffer(self.connectionWindow.end)
+        # Close the window
+        self.connectionWindow.close()
+        self.connectionWindow = None
+
     def _update_button(self):
         '''Update a neuron'''
         if len(self.buffers) == 0: return 
@@ -203,7 +325,7 @@ class GUI(QWidget):
         # Now go through params and change the buffer accordingly
         # Check for trigger
         trigger, outpin, threshold = params['trigger'], params['outpin'], params['threshold']
-        if trigger: self.buffers[id].setTrigger(float(threshold), int(outpin))
+        if trigger: self.buffers[id].setTrigger(0.05, int(outpin))
         else: self.buffers[id].setTrigger(None, None)
 
         # Check for functions
@@ -213,21 +335,39 @@ class GUI(QWidget):
             tau = float(params['tau'])/self.dt
             func = expKernel(tau=tau)
         self.buffers[id].setFunc(func=func)
-        self.buffers[id].relu = relu
+        if relu: self.buffers[id].relu = float(threshold)
+        else: self.buffers[id].relu = False
         self.buffers[id].invert = invert
 
         # Check for integrator parameters
         if params['type'] == 'Integrator':
             # Inputs
             inputs = find_numbers(params['neuron'])
-            inputbuffers = [self.buffers[int(i)] for i in inputs]
+            inputbuffers = [self.buffers[int(i)] for i in inputs if i < len(self.buffers) and (i != id)]
             self.buffers[id].setInputs(inputbuffers)
+
             # Weights
             weights = find_numbers(params['weights'])
             self.buffers[id].setWeights(weights)
             # Delays
             delays = find_numbers(params['delays'])
             self.buffers[id].setDelays(delays)
+
+            # Update painter - Loop over all connections and remove those connected to this neuron, then redraw
+            # Check that weights is correct
+            if len(weights) < len(inputs): weights = weights + [0]*(len(inputs) - len(weights))
+            toDelete = []
+            for i, connect in enumerate(self.painter.scene.connections):
+                if connect.end == self.painter.scene.neurons[id]:
+                    connect.start.removeLine(connect)
+                    connect.end.removeLine(connect, scene=False)
+                    toDelete.append(connect)
+            for i in toDelete: self.painter.scene.connections.remove(i)
+
+            # Now loop and create connections
+            for i, inputid in enumerate(inputs):
+                self.painter.scene.addConnection(self.painter.scene.neurons[int(inputid)], 
+                                                 self.painter.scene.neurons[id], weight=weights[i], delay=delays[i])
 
     def updateSimulation(self):
         '''Update plots'''
@@ -252,7 +392,7 @@ class Parameters(QWidget):
     def __init__(self):
         super().__init__()
         # Container for pages
-        self.pages = {}
+        self.pages = []
 
         # Create top level vertical layout
         layout = QVBoxLayout()
@@ -270,6 +410,10 @@ class Parameters(QWidget):
         layout.addWidget(self.pageCombo)
         layout.addLayout(self.stackedLayout)
 
+        # Create remove button
+        self.removebutton = QPushButton("Remove neuron")
+        layout.addWidget(self.removebutton)
+
         # Create update button
         self.updatebutton = QPushButton("Update settings")
         layout.addWidget(self.updatebutton)
@@ -279,14 +423,29 @@ class Parameters(QWidget):
     def addPage(self, name, typ, params={}, readonly=False, id=None):
         '''Add a page to combo box'''
         # Create new page and add to stack layout
-        self.pages[name] = ParameterPage(type=typ, params=params, id=id)
-        self.pages[name].outputs['name'].setReadOnly(readonly)
-        if typ == 'Input': self.pages[name].outputs['inpin'].setReadOnly(readonly)
-        self.stackedLayout.addWidget(self.pages[name])
+        self.pages.append(ParameterPage(type=typ, params=params, id=id))
+        self.pages[-1].outputs['name'].setReadOnly(readonly)
+        if typ == 'Input': self.pages[-1].outputs['inpin'].setReadOnly(readonly)
+        self.stackedLayout.addWidget(self.pages[-1])
 
         # Add page to dropdown
         self.pageCombo.addItem(name)
-        return self.pages[name]
+        return self.pages[-1]
+    
+    def removePage(self, id):
+        '''Remove the specified page'''
+        page = self.pages.pop(id)
+        self.stackedLayout.removeWidget(page)
+        self.pageCombo.removeItem(id)
+        for pg in self.pages:
+            if pg.id > id: pg.updateID(pg.id-1, removed=id)
+            else: pg.updateID(pg.id, removed=id)
+
+        self.update()
+
+    def updatePage(self, id, params):
+        '''Update a page with new params'''
+        return
 
     def switchPage(self):
         '''Switch between different pages'''
@@ -303,7 +462,9 @@ class ParameterPage(QWidget):
         # Depending on the type, create different page formats
         layout = QVBoxLayout()
         if id is None: layout.addWidget(QLabel(f'Type: {self.type}'), 1)
-        else: layout.addWidget(QLabel(f"Type: {self.type}\tID: {id}"), 1)
+        else: 
+            self.idLabel = QLabel(f"Type: {self.type}\tID: {id}")
+            layout.addWidget(self.idLabel, 1)
 
         pagelayout = QFormLayout()
 
@@ -313,7 +474,7 @@ class ParameterPage(QWidget):
         self.outputs['outpin'] = QLineEdit(params.get('outpin', ''))
         pagelayout.addRow(f"Output pin", self.outputs['outpin'])
         self.outputs['threshold'] = QLineEdit(params.get('threshold', '0.5'))
-        pagelayout.addRow(f"Trigger threshold", self.outputs['threshold'])
+        pagelayout.addRow(f"ReLU threshold", self.outputs['threshold'])
         self.outputs['tau'] = QLineEdit(params.get('tau', '0.05'))
         pagelayout.addRow(f"Kernel tau", self.outputs['tau'])
 
@@ -364,6 +525,32 @@ class ParameterPage(QWidget):
         layout.addLayout(checklayout, 5)
         self.setLayout(layout)
     
+    def updateID(self, id, removed):
+        '''Update ID'''
+        self.id = id
+        self.idLabel.setText(f"Type: {self.type}\tID: {id}")
+        if self.type == 'Integrator':
+            widget = self.outputs['neuron']
+            text = find_numbers(widget.text())
+            try: 
+                index = text.index(removed)
+                text.pop(index)
+                widget.setText(','.join(map(str,map(int,text))))
+
+                widget = self.outputs['weights']
+                text = find_numbers(widget.text())
+                if len(text) > 1: text.pop(index)
+                else: text.pop()
+                widget.setText(','.join(map(str,text)))
+
+                widget = self.outputs['delays']
+                text = find_numbers(widget.text())
+                if len(text) > 1: text.pop(index)
+                else: text.pop()
+                widget.setText(','.join(map(str,text)))
+
+            except ValueError: pass
+
     def getParams(self):
         '''Output the data in all widgets'''
         global INPINS
@@ -380,7 +567,6 @@ class ParameterPage(QWidget):
         if output.get('trigger', False):
             assert output.get('outpin').isdigit()
             assert (int(output.get('outpin')) >=0) & (int(output.get('outpin')) <= 27)
-
 
         if output.get('outpin').isdigit():
             # For inputs test if outpin is inpin
@@ -421,8 +607,10 @@ class Simulation(QWidget):
         self.pagelayout = QFormLayout()
         self.T = QLineEdit("1")
         self.dt = QLineEdit("0.01")
+        self.ds = QLineEdit("2")
         self.pagelayout.addRow(f"Time (s):", self.T)
         self.pagelayout.addRow(f"dt (s):", self.dt)
+        self.pagelayout.addRow(f"Downsample:", self.ds)
 
         # Create Constructor button
         self.construct = QPushButton("Create new neuron")
@@ -448,21 +636,22 @@ class InfoBar(QWidget):
         self.setLayout(layout)
 
         # Create tab widget with two pages for simulation and parameters
-        tabs = QTabWidget() 
+        self.tabs = QTabWidget() 
         self.simulation = Simulation()
         self.parameters = Parameters()
-        tabs.addTab(self.simulation, "Simulation")
-        tabs.addTab(self.parameters, "Parameters")
+        self.tabs.addTab(self.simulation, "Simulation")
+        self.tabs.addTab(self.parameters, "Parameters")
 
-        layout.addWidget(tabs)
+        layout.addWidget(self.tabs)
 
 class DynamicPlotter(pg.GraphicsLayoutWidget):
     '''Realtime visualization of GPIO inputs.'''
-    def __init__(self, dt=0.01, skipframes=10):
+    def __init__(self, dt=0.01, skipframes=5):
         super().__init__()
         # Some parameters
         self.skipframes = skipframes
         self.dt = dt
+        self.counter = 0
 
         # Set up plot container
         self.plot = self.addPlot()
@@ -471,6 +660,8 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
         self.plot.setLabel('bottom', 'time', 's')
         self.plot.setYRange(-1, 1, padding=0)
         self.plot.hideButtons()
+        self.setBackground(QtGui.QColor(20,20,20))
+        self.plot.getViewBox().setBackgroundColor(QtGui.QColor(20,20,20))
         # self.show()
 
         # Prepare container for curves
@@ -479,15 +670,28 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
     def updateSimulation(self):
         '''Retrieve real time data and update plot'''
         offset = 0
-        for i, curve in enumerate(self.curves): 
-            curve.update(offset=2*offset)
+        p = self.counter % self.skipframes == 0
+        for i, curve in enumerate(self.curves):  
+            curve.update(offset=2*offset, p=p)
             if curve.buffer.visible: offset += 1
+        self.counter += 1
+        if self.counter > 1e6: self.counter = 1
 
     def addDataStream(self, buffer, color=np.random.randint(0, 255, size=(3,))):
         '''Add a datastream to plot'''
         newcurve = Curve(canvas=self.plot, buffer=buffer, color=color)
         newcurve.curve.setVisible(buffer.visible)
         self.curves.append(newcurve)
+        self.setYrange()
+
+    def removeNeuron(self, id):
+        '''Remove dataStream'''
+        curve = self.curves[id]
+        curve.reset()
+        self.plot.removeItem(curve)
+        for i, curve in enumerate(self.curves):
+            if i > id: curve.curve.setPen(np.array(COLORMAP(i-1))[:-1]*255)
+        self.curves.pop(id)
         self.setYrange()
 
     def setParameters(self, T, dt):
@@ -513,17 +717,22 @@ class Curve():
         self.skip = False
 
         self.curve = self.canvas.plot(self.x, self.buffer.databuffer, pen=color)
+        self.counter = 0
 
-    def update(self, offset):
+    def update(self, offset, p=True):
         '''Update the plot for one time step'''
         self.buffer.update()
         if self.skip: return 
-        if self.buffer.visible: self.curve.setData(self.x, np.array(self.buffer.databuffer)+offset)
+        if self.buffer.visible and p: self.curve.setData(self.x, np.array(self.buffer.databuffer)+offset)
 
     def toggleVisibility(self, val):
         '''Toggle visiblity of buffer on and off'''
         self.buffer.visible = val
         self.curve.setVisible(val)
+
+    def reset(self):
+        '''Remove data points'''
+        self.curve.setData([0],[0])
 
 class NeuronConstructor(QWidget):
     '''Constructer window for creating new neurons'''
@@ -568,6 +777,30 @@ class NeuronConstructor(QWidget):
         '''Call the getParams function of the current page'''
         return self.parameters.currentWidget().getParams()
 
+class ConnectionWindow(QWidget):
+    '''Connection window for updating weights'''
+    def __init__(self, weight, delay, start, end):
+        super().__init__()
+        self.start, self.end = start, end
+        self.setWindowTitle("Update weights..")
+        layout = QVBoxLayout()
+
+        self.label = QLabel(f"Start: {start} --> End: {end}")
+        layout.addWidget(self.label)
+
+        pagelayout = QFormLayout()
+
+        self.weight = QLineEdit(str(weight))
+        pagelayout.addRow(f"Weight", self.weight)
+        self.delay = QLineEdit(str(delay))
+        pagelayout.addRow(f"Delay", self.delay)
+        layout.addLayout(pagelayout)
+
+        # Add submit button
+        self.submit = QPushButton("Apply")
+        layout.addWidget(self.submit)
+
+        self.setLayout(layout)
 
 if __name__ == '__main__':
     setup()

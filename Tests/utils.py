@@ -12,6 +12,8 @@ from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
 import pyqtgraph as pg
 import threading
 
+COLORMAP = pl.cm.tab10
+
 # GPIO stuff
 def setup():
     '''Set up environment for GPIO'''
@@ -72,7 +74,7 @@ class DynamicBuffer():
         '''Update the buffer'''
         sample = self.func()
         # Check for relu
-        if self.relu: sample = relu(sample)
+        if self.relu: sample = relu(sample, self.relu)
         # Check for inversion 
         if self.invert: sample = 1-sample
         self.databuffer.append(sample)
@@ -125,6 +127,9 @@ class Integrator(DynamicBuffer):
         if type(weights) is not list: self.weights = [weights/len(self.inputs)] * len(self.inputs)
         elif len(weights) < len(self.inputs): self.weights = weights + [0]*(len(self.inputs) - len(weights))
         else: self.weights = weights
+        self.weights = np.array(self.weights)
+        self.weights[self.weights > 0] = self.weights[self.weights > 0]/self.weights[self.weights > 0].sum()
+        #self.weights[self.weights < 0] = self.weights[self.weights < 0]/np.abs(self.weights[self.weights < 0]).sum()
 
     def setDelays(self, delays):
         '''Set new delays'''
@@ -136,7 +141,8 @@ class Integrator(DynamicBuffer):
     def _integrate(self):
         '''Sum over the last entries in inputs'''
         out = 0
-        for i, input in enumerate(self.inputs): out += input.databuffer[-self.delay[i]] * self.weights[i]
+        for i, input in enumerate(self.inputs): 
+            out += input.databuffer[-self.delay[i]] * self.weights[i]
         return out
     
     def setFunc(self, func=lambda x, *y: x):
@@ -144,9 +150,9 @@ class Integrator(DynamicBuffer):
         self.func = lambda: func(self._integrate(), self.databuffer)
     
 # Function to augment databuffers   
-def relu(x):
+def relu(x, threshold=0):
     '''Linear rectifying unit'''
-    if x < 0: return 0
+    if x < threshold: return 0
     elif x > 1: return 1
     else: return x
 

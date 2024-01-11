@@ -7,16 +7,19 @@ import matplotlib.pyplot as pl
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import (
-    QWidget, QGridLayout, QApplication, QVBoxLayout, 
+    QGraphicsSceneMouseEvent, QWidget, QGridLayout, QApplication, QVBoxLayout, 
     QComboBox, QStackedLayout, QFormLayout, QLineEdit,
     QTabWidget,QHBoxLayout, QCheckBox, QPushButton,
     QMainWindow, QStatusBar, QRadioButton, QLabel,
     QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsLineItem)
 
+NEURONRADIUS = 20
+
 class Neuron(QGraphicsItem):
     '''Draws a neuron that can be moved around'''
-    def __init__(self, input=False, rad=20, pos=(0,0), color=(255,0,0), label='', buffer=None, *args, **kwargs):
+    def __init__(self, input=False, rad=NEURONRADIUS, pos=(0,0), color=(255,0,0), 
+                 label='', id=0, typ='Integrator', buffer=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lines = []
         self.input = input
@@ -24,6 +27,8 @@ class Neuron(QGraphicsItem):
         self.setFlag(self.ItemSendsScenePositionChanges)
         self.label = label
         self.buffer = buffer
+        self.id = id
+        self.type = typ
 
         # Painter parameters
         self.centre = pos
@@ -47,7 +52,8 @@ class Neuron(QGraphicsItem):
         # painter.save()
         painter.setPen(self.pen)
         painter.setBrush(self.brush)
-        painter.drawEllipse(self.ellipse)
+        if self.type == 'Integrator': painter.drawEllipse(self.ellipse)
+        elif self.type == 'Input': painter.drawRoundedRect(self.ellipse, 4, 4)
         painter.setFont(QtGui.QFont("Arial", 11, QtGui.QFont.Bold))
         painter.setPen(self.fontpen)
         painter.drawText(self.ellipse, QtCore.Qt.AlignCenter, self.label)
@@ -80,6 +86,17 @@ class Neuron(QGraphicsItem):
                 return True
         return False
     
+    def updateID(self, id):
+        '''Update ID'''
+        self.id = id
+        self.label = str(id)
+        # Also update color
+        color = np.array(COLORMAP(id))[:-1]*255
+        self.setColor(color)
+        self.baseColor = color
+        self.pen = QtGui.QPen(QtGui.QColor(*color), 2)
+        self.update()
+    
     def itemChange(self, change, value):
         '''Move all lines attached to this item'''
         for line in self.lines:
@@ -89,7 +106,11 @@ class Neuron(QGraphicsItem):
     def updateAppearance(self):
         '''Update color'''
         if self.buffer is not None: 
-            color = lerp(self.inactiveColor, self.baseColor, self.buffer.databuffer[-1])
+            t = self.buffer.databuffer[-1]
+            if t > 1: t = 1
+            elif t < 0: t = 0
+
+            color = lerp(self.inactiveColor, self.baseColor, t)
             self.setColor(color)
             self.update()
             return True
@@ -102,17 +123,27 @@ def lerp(x, y, t):
 
 class Connection(QGraphicsLineItem):
     '''Connection between neurons'''
-    def __init__(self, start, p2):
+    def __init__(self, start, p2, weight=1, delay=0):
         super().__init__()
         self.start, self.end = start, None
+        self.weight = weight
+        self.delay = delay
+        self.baseWidth = 5
+        self.color = np.array([60, 60, 60])
         
         # Move line behind neurons
         self.setZValue(-1)
 
         self.rad = 5.
         self._line = QtCore.QLineF(self.start.scenePos(), p2)
-        self.custompen = QtGui.QPen(QtGui.QColor("black"), 5)
-        self.brush = QtGui.QBrush(QtGui.QColor("black"))
+        self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*abs(self.weight))
+        self.brush = QtGui.QBrush(QtGui.QColor(*self.color))
+
+    def setWeight(self, weight):
+        '''Set weight as linewidth'''
+        self.weight = weight
+        self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*weight)
+        self.update()
 
     def setP2(self, p2):
         self._line.setP2(p2)
@@ -148,10 +179,18 @@ class Connection(QGraphicsLineItem):
             painter.drawEllipse(QtCore.QRectF(self._line.p2()-QtCore.QPointF(self.rad, self.rad), 
                                               QtCore.QSizeF(self.rad*2,self.rad*2)))
         else:
-            endpoint = self.end.pos() - QtCore.QPointF(self._line.unitVector().dx()*(20.+self.rad),
-                                                      self._line.unitVector().dy()*(20.+self.rad)) -QtCore.QPointF(self.rad, self.rad)
-            painter.drawEllipse(QtCore.QRectF(endpoint, 
-                                              QtCore.QSizeF(self.rad*2,self.rad*2)))
+            unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
+            if self.weight >= 0:
+                # Calculate the offset due to neuron radius and pen thickness
+                endpoint = self.end.pos() - unit *(NEURONRADIUS+self.rad) - QtCore.QPointF(self.rad, self.rad)
+                painter.drawEllipse(QtCore.QRectF(endpoint, QtCore.QSizeF(self.rad*2,self.rad*2)))
+            else:
+                # Calculate the offset due to neuron radius and pen thickness
+                endpoint = self.end.pos() - unit * (NEURONRADIUS+self.custompen.widthF()/2)
+                normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
+                                        self._line.normalVector().dy()/self._line.length())
+                bar = QtCore.QLineF(endpoint+normal*self.rad, endpoint-normal*self.rad)
+                painter.drawLine(bar)
 
     def shape(self):
         '''Calculates the bounding box for collision detection'''
@@ -159,9 +198,12 @@ class Connection(QGraphicsLineItem):
         polygon = QtGui.QPolygonF()
         # Add four corner points
         adjust = self.rad*2
-        normal = QtCore.QPointF(self._line.normalVector().dx(), self._line.normalVector().dy())
-        polygon << (self._line.p1()+normal*adjust) << (self._line.p1()-normal*adjust) << (
-                    self._line.p2()+normal*adjust) << (self._line.p2()-normal*adjust)
+        unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
+        p1, p2 = self._line.p1(), self._line.p2()+unit*adjust
+        normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
+                                self._line.normalVector().dy()/self._line.length())
+        polygon << (p1+normal*adjust) << (p1-normal*adjust) << (
+                    p2-normal*adjust) << (p2+normal*adjust)
         path.addPolygon(polygon)
         return path
 
@@ -172,21 +214,57 @@ class Scene(QGraphicsScene):
         # Neuron parameters
         self.rad = 20
         self.neurons = []
+        self.connections = []
 
         # Event handling variables
         self.start = None
         self.connect = None
 
-        # Tests
-        # self.addNeuron(pos=(100,100), label='1')
-        # self.addNeuron(pos=(-100,-100), label='2')
+        # Mouse event functions
+        self.mousePress = lambda *x: None
+        self.mouseMove = lambda *x: None
+        self.mouseRelease = lambda *x: None
 
-    def addNeuron(self, pos, color=(255,0,0), label='', buffer=None):
+    def addNeuron(self, pos, color=(255,0,0), label='', buffer=None, id=0, typ='Integrator'):
         '''Add neuron to canvas and move to position pos'''
-        neuron = Neuron(rad=self.rad, color=color, label=label, buffer=buffer)
+        neuron = Neuron(rad=self.rad, color=color, label=label, buffer=buffer, id=id, typ=typ)
         neuron.setPos(*pos)
         self.addItem(neuron)
         self.neurons.append(neuron)
+
+    def addConnection(self, neuron1, neuron2, weight=1, delay=0):
+        '''Add a connection between two neurons'''
+        connect = Connection(start=neuron1, p2=neuron2.scenePos(), weight=weight, delay=delay)
+        connect.setEnd(neuron2)
+        if neuron1.addLine(connect):
+            neuron2.addLine(connect)
+            self.connections.append(connect)
+            self.addItem(connect)
+            return True
+        else:
+            print("Connection already exists")
+            return False
+
+    def removeNeuron(self, id):
+        '''Remove neuron and connections to and from it'''
+        neuron = self.neurons.pop(id)
+        # Loop over connections and remove
+        toDelete = []
+        for i, connect in enumerate(self.connections):
+            if neuron in connect.endPoints():
+                connect.start.removeLine(connect)
+                connect.end.removeLine(connect, scene=False)
+                toDelete.append(connect)
+        for i in toDelete: self.connections.remove(i)
+        self.removeItem(neuron)
+        self.update()
+
+        # Next, update the IDs of all remaining neurons
+        for neuron in self.neurons:
+            if neuron.id > id:
+                neuron.updateID(neuron.id-1)
+        
+        return True
 
     def updateNeurons(self):
         '''Update the appearance of neurons'''
@@ -195,10 +273,6 @@ class Scene(QGraphicsScene):
 
     def mousePressEvent(self, event):
         '''On mouse press, if mouse is on neuron, create connection from that neuron'''
-        # if event.button() == QtCore.Qt.LeftButton:
-        #     pos = event.scenePos()
-        #     item = self.itemAt(pos, QtGui.QTransform())
-        #     print(item, item.pos(), item.scenePos())
         if event.button() == QtCore.Qt.RightButton:
             pos = event.scenePos()
             item = self.itemAt(pos, QtGui.QTransform())
@@ -223,6 +297,12 @@ class Scene(QGraphicsScene):
             return
         super().mouseMoveEvent(event)
 
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        pos = event.scenePos()
+        item = self.itemAt(pos, QtGui.QTransform())
+        self.mousePress(item)
+        return super().mouseDoubleClickEvent(event)
+
     def mouseReleaseEvent(self, event):
         '''Create or destroy connection'''
         if self.connect:
@@ -230,15 +310,21 @@ class Scene(QGraphicsScene):
             item = self.itemAt(pos, QtGui.QTransform())
             if isinstance(item, Neuron) and (item != self.start):
                 self.connect.setEnd(item)
-                if self.start.addLine(self.connect):
+                if item.type == 'Input':
+                    self.connect.start.removeLine(self.connect)
+                    self.connect.end.removeLine(self.connect, scene=False)
+                    self.removeItem(self.connect)
+                elif self.start.addLine(self.connect):
                     item.addLine(self.connect)
-                    
+                    self.connections.append(self.connect)
+                    self.mouseRelease(self.connect.start.id, self.connect.end.id, True)   
                 else:
                     # If line was not created successfully, it means that line already exists
                     # In this case, delete the preexisting line
                     self.connect.start.removeLine(self.connect)
                     self.connect.end.removeLine(self.connect, scene=False)
                     self.removeItem(self.connect)
+                    self.mouseRelease(self.connect.start.id, self.connect.end.id, False)
                              
             else:
                 # self.start.removeLine(self.connect)
@@ -252,7 +338,7 @@ class Scene(QGraphicsScene):
 
 class Canvas(QGraphicsView):
     '''Canvas for scene'''
-    def __init__(self, width, height):
+    def __init__(self):
         super().__init__()
         # Scene parrameters
         self.setFrameStyle(0)
