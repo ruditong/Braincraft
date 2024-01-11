@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QStatusBar, QRadioButton, QLabel,
     QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsLineItem)
-from test import *
+from Visualizer import *
 
 def find_numbers(s):
     '''Given a string s, return a list of all numbers'''
@@ -62,7 +62,7 @@ class GUI(QWidget):
         layout = QGridLayout()
         # Add widgets
         # self.painter = Painter()
-        self.painter = TestPainter()
+        self.painter = Canvas(500,500)
         layout.addWidget(self.painter, 0, 0)
 
         # Add Info bar
@@ -96,6 +96,7 @@ class GUI(QWidget):
         self.constructorWindow = None
         info.simulation.apply.clicked.connect(self._apply_button)
         info.simulation.construct.clicked.connect(self._construct_button)
+        info.simulation.showCheck.clicked.connect(self._toggle_show)
         info.parameters.updatebutton.clicked.connect(self._update_button)
         return info
 
@@ -135,6 +136,10 @@ class GUI(QWidget):
         self.plotter.curves[id].toggleVisibility(val)
         self.plotter.setYrange()
 
+    def _toggle_show(self):
+        '''Toggle all buffers on and off'''
+        for curve in self.plotter.curves: curve.skip = not(self.info.simulation.showCheck.isChecked())
+
     def _construct_submit(self):
         '''Process constructor and close the window'''
         # Retrieve information
@@ -166,6 +171,9 @@ class GUI(QWidget):
 
         self.buffers.append(buffer)
         self.plotter.addDataStream(buffer, color=np.array(pl.cm.tab10(len(self.buffers)-1))[:-1]*255)
+        self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2, self.painter.scene.height()/2]), 
+                                     color=np.array(pl.cm.tab10(len(self.buffers)-1))[:-1]*255, 
+                                     label=str(len(self.buffers)-1), buffer=buffer)
 
         # Add a page to parameters
         page = self.info.parameters.addPage(name=params['name'], typ=params['type'], params=params, readonly=True, id=len(self.buffers)-1)
@@ -226,6 +234,7 @@ class GUI(QWidget):
         # Only update plotter if "Run"-checkbox is checked
         if self.info.simulation.checkBox.isChecked():
             self.plotter.updateSimulation()
+            if self.info.simulation.painterCheck.isChecked(): self.painter.scene.updateNeurons()
 
             # Display update FPS
             self.counter += 1
@@ -235,83 +244,8 @@ class GUI(QWidget):
                 self.time = time_now
                 self.counter = 0
                 self.statusBar.showMessage(f"FPS = {freq: .1f} Hz")
-
-        self.app.processEvents()
-
-class Painter(QGraphicsView):
-    '''Visualizer for neuronal connectivity. Mirrors the simulation setup and allow for user interaction'''
-    def __init__(self):
-        super().__init__()
-        self.scene = QGraphicsScene()
-        self.setScene(self.scene)
-
-        self.setRenderHint(QtGui.QPainter.Antialiasing)
-        self.circles = []
-        self.lines = []
-
-        self.addCircle("Start", pos=(-10,-10))
-        self.addCircle("End", pos=(50,50))
-        # self.addLine(self.circles[0], self.circles[1])
         
-    def addCircle(self, label='', pos=(0,0), radius=50):
-        '''Add a circle with label and position'''
-        circle = Circle(label, QtCore.QRectF(pos[0], pos[1],radius, radius))
-        self.circles.append(circle)
-        self.scene.addItem(self.circles[-1])
-
-    def addLine(self, start, end):
-        '''Add a connection between cicrles'''
-        line = Line(start, end)
-        self.lines.append(line)
-        self.scene.addItem(self.lines[-1])
-
-    def paintEvent(self, event):
-        '''Define pain event handler'''
-        super().paintEvent(event)
-
-class Circle(QGraphicsEllipseItem):
-    '''Circle representing simulation elements'''
-    def __init__(self, label='', *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.setFlags(
-            self.flags()
-            | QGraphicsItem.ItemSendsGeometryChanges
-            | QGraphicsItem.ItemIsMovable
-            | QGraphicsItem.ItemIsSelectable
-        )
-        self.label = label  
-        self.setPen(QtGui.QPen(QtGui.QColor("black"), 5))
-    
-    def itemChange(self, change, value):
-        if (
-            change == QGraphicsItem.ItemPositionChange
-        ):
-            return value
-        return super().itemChange(change, value)
-
-    def paint(self, painter, option, widget=0):
-        super().paint(painter, option, widget)
-        painter.drawText(self.boundingRect(), QtCore.Qt.AlignCenter, self.label)
-
-class Line(QGraphicsLineItem):
-    '''Line representing connection between neurons'''
-    def __init__(self, start, end, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.setFlags(
-            self.flags()
-            | QGraphicsItem.ItemSendsGeometryChanges
-            | QGraphicsItem.ItemIsSelectable
-        )
-        self.setPen(QtGui.QPen(QtGui.QColor("black"), 5))
-        self.addItem(start)
-        self.adItem(end)
-        self.setHandlesChildEvents(True)
-        self.start = start
-        self.end = end
-
-    def paint(self, painter, option, widget=0):
-        self.setLine(self.start.rect().x(), self.start.rect().y(), self.end.rect().x(), self.end.rect().y())
-        super().paint(painter, option, widget)
+        self.app.processEvents()
 
 class Parameters(QWidget):
     '''Window to display and change parameters'''
@@ -473,9 +407,15 @@ class Simulation(QWidget):
         # Create Checkbox and reset button
         controllayout = QHBoxLayout()
         self.checkBox = QCheckBox("Run")
+        self.showCheck = QCheckBox("Toggle show")
+        self.showCheck.setChecked(True)
+        self.painterCheck = QCheckBox("Toggle vis.")
+        self.painterCheck.setChecked(True)
         self.reset = QPushButton("Reset")
         controllayout.addWidget(self.checkBox)
-        controllayout.addWidget(self.reset)
+        controllayout.addWidget(self.showCheck)
+        controllayout.addWidget(self.painterCheck)
+        #controllayout.addWidget(self.reset)
 
         # Create form layout
         self.pagelayout = QFormLayout()
@@ -531,7 +471,7 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
         self.plot.setLabel('bottom', 'time', 's')
         self.plot.setYRange(-1, 1, padding=0)
         self.plot.hideButtons()
-        self.show()
+        # self.show()
 
         # Prepare container for curves
         self.curves = []
@@ -570,12 +510,14 @@ class Curve():
         self.buffer = buffer
         self.x = np.linspace(-self.buffer.T, 0., self.buffer._bufsize)
         self.canvas = canvas
+        self.skip = False
 
         self.curve = self.canvas.plot(self.x, self.buffer.databuffer, pen=color)
 
     def update(self, offset):
         '''Update the plot for one time step'''
         self.buffer.update()
+        if self.skip: return 
         if self.buffer.visible: self.curve.setData(self.x, np.array(self.buffer.databuffer)+offset)
 
     def toggleVisibility(self, val):
@@ -625,16 +567,6 @@ class NeuronConstructor(QWidget):
     def getParams(self):
         '''Call the getParams function of the current page'''
         return self.parameters.currentWidget().getParams()
-
-class TestPainter(QGraphicsView):
-    def __init__(self):
-        super().__init__()
-        self.scene = Scene()
-        self.setScene(self.scene)
-        self.scene.addItem(CustomItem(left=1))
-        self.scene.addItem(CustomItem(right=1))
-
-        self.setRenderHint(QtGui.QPainter.Antialiasing)
 
 
 if __name__ == '__main__':

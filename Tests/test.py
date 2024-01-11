@@ -8,6 +8,8 @@ class Connection(QtWidgets.QGraphicsLineItem):
         self._line = QtCore.QLineF(start.scenePos(), p2)
         self.setLine(self._line)
 
+        self.setPen(QtGui.QPen(QtGui.QColor("black"), 5))
+
     def controlPoints(self):
         return self.start, self.end
 
