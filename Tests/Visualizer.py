@@ -41,6 +41,14 @@ class Neuron(QGraphicsItem):
         self.fontpen = QtGui.QPen(QtCore.Qt.black, 0)
         self.brush = QtGui.QBrush(QtGui.QColor(*self.color))
 
+        # Make a tooltip
+        self.createTooltip()
+        self.setAcceptHoverEvents(True)
+
+    def createTooltip(self):
+        '''Update the tooltip'''
+        self.setToolTip(f"<h5>Neuron ID = {self.id}<hr>Type: {self.type}<br>#Connections: {len(self.lines)}")
+        
     def setColor(self, color):
         '''Set the colour of the brush'''
         self.color = color
@@ -54,7 +62,7 @@ class Neuron(QGraphicsItem):
         painter.setBrush(self.brush)
         if self.type == 'Integrator': painter.drawEllipse(self.ellipse)
         elif self.type == 'Input': painter.drawRoundedRect(self.ellipse, 4, 4)
-        painter.setFont(QtGui.QFont("Arial", 11, QtGui.QFont.Bold))
+        painter.setFont(QtGui.QFont("Arial", 12, QtGui.QFont.Bold))
         painter.setPen(self.fontpen)
         painter.drawText(self.ellipse, QtCore.Qt.AlignCenter, self.label)
         # painter.restore()
@@ -76,6 +84,7 @@ class Neuron(QGraphicsItem):
                 # another line with the same control points already exists
                 return False
         self.lines.append(lineItem)
+        self.createTooltip()
         return True
 
     def removeLine(self, lineItem, scene=True):
@@ -84,6 +93,7 @@ class Neuron(QGraphicsItem):
                 if scene: self.scene().removeItem(existing)
                 self.lines.remove(existing)
                 return True
+        self.createTooltip()
         return False
     
     def updateID(self, id):
@@ -116,6 +126,16 @@ class Neuron(QGraphicsItem):
             return True
         return False
 
+    def hoverEnterEvent(self, event):
+        '''Change cursor'''
+        self.pen.setWidth(6)
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        '''Change cursor back'''
+        self.pen.setWidth(2)
+        self.update()
+
 def lerp(x, y, t):
     '''Linearly interpolate between x and y'''
     v = y-x
@@ -139,10 +159,16 @@ class Connection(QGraphicsLineItem):
         self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*abs(self.weight))
         self.brush = QtGui.QBrush(QtGui.QColor(*self.color))
 
+        self.setAcceptHoverEvents(True)
+
+    def createTooltip(self):
+        '''Update tooltip'''
+        self.setToolTip(f"Neuron {self.start.id} --> Neuron {self.end.id}")
+
     def setWeight(self, weight):
         '''Set weight as linewidth'''
         self.weight = weight
-        self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*weight)
+        self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*abs(weight))
         self.update()
 
     def setP2(self, p2):
@@ -154,6 +180,7 @@ class Connection(QGraphicsLineItem):
 
     def setEnd(self, end):
         self.end = end
+        self.createTooltip()
         self.updateLine(end)
         self.update()
 
@@ -167,6 +194,16 @@ class Connection(QGraphicsLineItem):
     def endPoints(self):
         '''Return start and end points'''
         return self.start, self.end
+
+    def hoverEnterEvent(self, event):
+        '''Change cursor'''
+        self.custompen.setWidth(self.baseWidth*abs(self.weight)+2)
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        '''Change cursor back'''
+        self.custompen.setWidth(self.baseWidth*abs(self.weight))
+        self.update()
 
     def paint(self, painter, option, widget=None):
         '''Overwrite paint to add arrowhead'''
@@ -197,7 +234,7 @@ class Connection(QGraphicsLineItem):
         path = QtGui.QPainterPath()
         polygon = QtGui.QPolygonF()
         # Add four corner points
-        adjust = self.rad*2
+        adjust = self.rad*3
         unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
         p1, p2 = self._line.p1(), self._line.p2()+unit*adjust
         normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
@@ -355,6 +392,7 @@ class Canvas(QGraphicsView):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    canvas = Canvas(1000,500)
+    canvas = Canvas()
+    canvas.scene.addNeuron((10,10), id=0, label='0')
     canvas.show()
     sys.exit(app.exec_())

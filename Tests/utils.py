@@ -28,7 +28,8 @@ def close():
 # Classes for saving data in real time
 class DynamicBuffer():
     '''Buffer class that stores data in real time for plotting purposes'''
-    def __init__(self, T, dt, func=lambda: 0, init=0, trigger=None, outpin=None, relu=False, invert=False):
+    def __init__(self, T, dt, func=lambda: 0, init=0, trigger=None, outpin=None, 
+                 relu=False, invert=False, id=None):
         '''
         Initialise buffer. The buffer is set to size=T/dt.
         Parameters:
@@ -47,6 +48,7 @@ class DynamicBuffer():
         self.setFunc(func)
         self.setTrigger(trigger, outpin)
         self.relu, self.invert = False, False
+        self.id = id
 
     def setTrigger(self, trigger, outpin):
         '''Set up output trigger'''
@@ -87,8 +89,8 @@ class DynamicBuffer():
 
 class PinBuffer(DynamicBuffer):
     '''Data buffer for pin inputs. func will act on the input of the pin.'''
-    def __init__(self, pin, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None):
-        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin)
+    def __init__(self, pin, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None, id=None):
+        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id)
         self.pin = pin
 
         # Set up the pin
@@ -103,8 +105,9 @@ class PinBuffer(DynamicBuffer):
 
 class Integrator(DynamicBuffer):
     '''Integrate inputs'''
-    def __init__(self, inputs, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None, delay=0, weights=1.):
-        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin)
+    def __init__(self, inputs, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None, delay=0, 
+                 weights=1., id=None):
+        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id)
         self.inputs = inputs
         # Check weights
         self.setWeights(weights)
@@ -128,7 +131,7 @@ class Integrator(DynamicBuffer):
         elif len(weights) < len(self.inputs): self.weights = weights + [0]*(len(self.inputs) - len(weights))
         else: self.weights = weights
         self.weights = np.array(self.weights)
-        self.weights[self.weights > 0] = self.weights[self.weights > 0]/self.weights[self.weights > 0].sum()
+        #self.weights[self.weights > 0] = self.weights[self.weights > 0]/self.weights[self.weights > 0].sum()
         #self.weights[self.weights < 0] = self.weights[self.weights < 0]/np.abs(self.weights[self.weights < 0]).sum()
 
     def setDelays(self, delays):

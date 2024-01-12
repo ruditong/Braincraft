@@ -26,6 +26,31 @@ def find_numbers(s):
     n = [float(i) for i in re.findall(r"[-+]?(?:\d*\.*\d+)", s)]
     return n
 
+def getParamsFromBuffer(buffer):
+    '''Given a buffer, return a dictionary with parameters'''
+    print(buffer.outpin)
+    params = {'id'          : buffer.id,
+              'outpin'      : str(buffer.outpin) if buffer.outpin else '',
+              'threshold'   : str(buffer.trigger) if buffer.trigger else '',
+              'tau'         : str(buffer.func.tau) if isinstance(buffer.func, expKernel) else '0.05',
+              'invert'      : buffer.invert,
+              'relu'        : buffer.relu,
+              'sigmoid'     : False,
+              'kernel'      : isinstance(buffer.func, expKernel),
+              'trigger'     : buffer.trigger is not None,
+              'visible'     : buffer.visible,
+              }
+    # Add specific params
+    if isinstance(buffer, PinBuffer):
+        params['inpin'] = str(buffer.pin)
+        params['type'] = 'Input'
+    elif isinstance(buffer, Integrator):
+        params['neuron'] = ','.join([str(input.id) for input in buffer.inputs])
+        params['weights'] = ','.join([str(weight) for weight in buffer.weights])
+        params['delays'] = ','.join([str(delays) for delays in buffer.delay])
+        params['type'] = 'Integrator'
+    return params
+
 # Keep track of used pins
 INPINS = []
 
@@ -95,8 +120,10 @@ class GUI(QWidget):
         info = InfoBar()
         self.constructorWindow = None
         self.connectionWindow = None
+        self.triggerWindow = None
         info.simulation.apply.clicked.connect(self._apply_button)
         info.simulation.construct.clicked.connect(self._construct_button)
+        info.simulation.triggerwindow.clicked.connect(self._trigger_button)
         info.simulation.showCheck.clicked.connect(self._toggle_show)
         info.parameters.updatebutton.clicked.connect(self._update_button)
         info.parameters.removebutton.clicked.connect(self._remove_button)
@@ -112,6 +139,9 @@ class GUI(QWidget):
     def removeBuffer(self, id):
         '''Remove a buffer and update all other ids'''
         self.buffers.pop(id)
+        # Update buffer id
+        for buffer in self.buffers: 
+            if buffer.id > id: buffer.id = buffer.id-1
         self.info.parameters.removePage(id)
 
     def _remove_button(self):
@@ -172,7 +202,7 @@ class GUI(QWidget):
             self.info.parameters.switchPage()
         elif (item is not None) and (isinstance(item, Connection)):
             if self.connectionWindow is None:
-                self.connectionWindow = ConnectionWindow(item.weight, item.delay, item.start.id, item.end.id)
+                self.connectionWindow = ConnectionPopupWindow(item.weight, item.delay, item.start.id, item.end.id)
                 self.connectionWindow.submit.clicked.connect(self._connect_submit)
                 self.connectionWindow.closeEvent = lambda *x: self._connect_submit(close=True)
             self.connectionWindow.show()
@@ -207,11 +237,33 @@ class GUI(QWidget):
 
     def _construct_button(self):
         '''Open new window to create a new neuron'''
+        if self.constructorWindow is not None:
+            if self.constructorWindow.isVisible(): 
+                self.constructorWindow.close()
+                self.constructorWindow = None
+
         if self.constructorWindow is None:
             self.constructorWindow = NeuronConstructor()
             self.constructorWindow.submit.clicked.connect(self._construct_submit)
             self.constructorWindow.closebutton.clicked.connect(self._construct_close)
         self.constructorWindow.show()
+
+    def _trigger_button(self):
+        '''Open new window to create a new neuron'''
+        if self.triggerWindow is not None:
+            if self.triggerWindow.isVisible(): 
+                self.triggerWindow.close()
+                self.triggerWindow = None
+
+        if self.triggerWindow is None:
+            # Get a list of pins in use
+            usedPins = [buffer.pin for buffer in self.buffers if isinstance(buffer, PinBuffer)]
+            # Get a list of all neurons
+            neurons = [page.getParams() for page in self.info.parameters.pages]
+            self.triggerWindow = TriggerWindow(usedPins, neurons)
+            self.triggerWindow.submit.clicked.connect(self._trigger_submit)
+            self.triggerWindow.closeEvent = lambda *x: self._trigger_submit(close=True)
+        self.triggerWindow.show()
 
     def _visible_check(self, val):
         '''Toggle buffer on and off'''
@@ -243,7 +295,7 @@ class GUI(QWidget):
         T = float(self.info.simulation.T.text())
         dt = float(self.info.simulation.dt.text())
         if params['type'] == 'Input':
-            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt)
+            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt, id=len(self.buffers))
             buffer.visible = params['visible']
 
         elif params['type'] == 'Integrator':
@@ -251,7 +303,13 @@ class GUI(QWidget):
             inputbuffers = [self.buffers[int(i)] for i in inputs]
             weights = find_numbers(params['weights'])
             delays = find_numbers(params['delays'])
-            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights)
+            if len(inputs) != len(weights): 
+                print("Length of inputs != length of weights")
+                return False
+            if len(inputs) != len(delays):
+                print("Length of inputs != length of delays")
+                return False
+            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights, id=len(self.buffers))
             buffer.visible=params['visible']
 
         self.buffers.append(buffer)
@@ -267,7 +325,8 @@ class GUI(QWidget):
         page.outputs['visible'].toggled.connect(lambda: self._visible_check(page.outputs['visible'].isChecked()))
 
         # Now call update button to apply all parameters
-        self.updateBuffer(len(self.buffers)-1)
+        params = page.getParams()
+        self.updateBuffer(len(self.buffers)-1, params)
 
     def _construct_close(self):
         '''Close he constructor'''
@@ -312,21 +371,47 @@ class GUI(QWidget):
         self.connectionWindow.close()
         self.connectionWindow = None
 
+    def _trigger_submit(self, close=False):
+        '''Close he constructor'''
+        # Get parameter and update
+        if close:
+            self.triggerWindow.close()
+            self.triggerWindow = None
+            return
+        
+        paramsList = self.triggerWindow.getOutput()
+        for i in range(len(self.buffers)):
+            # Get current page
+            currentParams = self.info.parameters.stackedLayout.widget(i).getParams()
+            currentParams['outpin'] = paramsList[i][0]
+            currentParams['trigger'] = paramsList[i][1]
+            self.updateBuffer(i, params=currentParams)
+
+        self.triggerWindow.close()
+        self.triggerWindow = None
+
     def _update_button(self):
         '''Update a neuron'''
         if len(self.buffers) == 0: return 
         id = self.info.parameters.pageCombo.currentIndex()
         self.updateBuffer(id)
 
-    def updateBuffer(self, id):
+    def updatePage(self, id, params):
+        '''Wrpper for self.info.parameters.updatePage'''
+        self.info.parameters.updatePage(id, params)
+
+    def updateBuffer(self, id, params=None):
         '''Update the buffer specified in id'''
-        params = self.info.parameters.stackedLayout.widget(id).getParams()
+        if params is None: params = self.info.parameters.stackedLayout.widget(id).getParams()
+        else: self.updatePage(id, params)
         
         # Now go through params and change the buffer accordingly
         # Check for trigger
         trigger, outpin, threshold = params['trigger'], params['outpin'], params['threshold']
+        if outpin.isdigit(): outpin = int(outpin)
+        else: outpin = None
         if trigger: self.buffers[id].setTrigger(0.05, int(outpin))
-        else: self.buffers[id].setTrigger(None, None)
+        else: self.buffers[id].setTrigger(None, outpin)
 
         # Check for functions
         relu, sigmoid, invert, kernel = params['relu'], params['sigmoid'], params['invert'], params['kernel']
@@ -445,11 +530,15 @@ class Parameters(QWidget):
 
     def updatePage(self, id, params):
         '''Update a page with new params'''
-        return
+        self.pages[id].setParams(params)
 
     def switchPage(self):
         '''Switch between different pages'''
         self.stackedLayout.setCurrentIndex(self.pageCombo.currentIndex())
+
+    def getIds(self):
+        '''Return a list of available IDs'''
+        return list(range(len(self.pages)))
 
 class ParameterPage(QWidget):
     '''Parameter information pages'''
@@ -484,15 +573,26 @@ class ParameterPage(QWidget):
             
         elif self.type == 'Integrator':
             self.outputs['neuron'] = QLineEdit(params.get('neuron', ''))
-            pagelayout.addRow(f"Input neurons", self.outputs['neuron'])
+            self.outputs['neuron'].hide()
+            # pagelayout.addRow(f"Input neurons", self.outputs['neuron'])
 
-            self.outputs['weights'] = QLineEdit(params.get('weights', '1'))
-            pagelayout.addRow(f"Weights", self.outputs['weights'])
+            self.outputs['weights'] = QLineEdit(params.get('weights', ''))
+            self.outputs['weights'].hide()
+            # pagelayout.addRow(f"Weights", self.outputs['weights'])
 
-            self.outputs['delays'] = QLineEdit(params.get('delays', '0'))
-            pagelayout.addRow(f"Delays", self.outputs['delays'])
+            self.outputs['delays'] = QLineEdit(params.get('delays', ''))
+            self.outputs['delays'].hide()
+            # pagelayout.addRow(f"Delays", self.outputs['delays'])
+
+            # Add new connection menu
+            if self.id is not None:
+                self.outputs['connections'] = QPushButton("Manage connections")
+                self.connectWindow = ConnectionWindow(id=self.id)
+                self.connectWindow.hide()
+                self.outputs['connections'].clicked.connect(self._connectWindow_button)
+                pagelayout.addRow(self.outputs['connections'])
             
-        pagelayout.setVerticalSpacing(1)
+        # pagelayout.setVerticalSpacing(1)
         layout.addLayout(pagelayout, 5) 
 
         # Checkbox parameters
@@ -521,10 +621,17 @@ class ParameterPage(QWidget):
         if params.get('visible', True): self.outputs['visible'].setChecked(True)
         checklayout.addWidget(self.outputs['visible'], 2, 1)
               
-        checklayout.setSpacing(0)
+        # checklayout.setSpacing(0)
         layout.addLayout(checklayout, 5)
         self.setLayout(layout)
+
+        self.params = self.getParams(check=False)
     
+    def _connectWindow_button(self):
+        '''Open connection window'''
+        self.connectWindow.setParams(self.params, self.parent().getIds())
+        self.connectWindow.show()
+
     def updateID(self, id, removed):
         '''Update ID'''
         self.id = id
@@ -535,6 +642,7 @@ class ParameterPage(QWidget):
             try: 
                 index = text.index(removed)
                 text.pop(index)
+                text = [i if i < removed else i-1 for i in text]
                 widget.setText(','.join(map(str,map(int,text))))
 
                 widget = self.outputs['weights']
@@ -551,36 +659,56 @@ class ParameterPage(QWidget):
 
             except ValueError: pass
 
-    def getParams(self):
+    def setParams(self, params):
+        '''Set parameters'''
+        # Global parameters
+        self.type = params['type']
+        self.id = params['id']
+        self.idLabel.setText(f"Type: {self.type}\tID: {self.id}")
+
+        # Now loop over keys
+        for key in params.keys():
+            if key in ['type', 'id']: continue
+            if isinstance(self.outputs[key], QLineEdit): 
+                self.outputs[key].setText(params[key])
+            elif isinstance(self.outputs[key], QCheckBox): 
+                self.outputs[key].setChecked(params[key])
+        
+        self.params = params
+
+    def getParams(self, check=True):
         '''Output the data in all widgets'''
         global INPINS
         output = {'type': self.type}
+        output['id'] = self.id
         for key in self.outputs.keys():
             if type(self.outputs[key]) is QLineEdit: output[key] = self.outputs[key].text()
             elif type(self.outputs[key]) is QCheckBox: output[key] = self.outputs[key].isChecked()
         
         # Check parameters for validity
-        if output.get('inpin', None) is not None: 
-            assert output.get('inpin').isdigit()
-            assert (int(output.get('inpin')) >=0) & (int(output.get('inpin')) <= 27)
+        if check:
+            if output.get('inpin', None) is not None: 
+                assert output.get('inpin').isdigit()
+                assert (int(output.get('inpin')) >=0) & (int(output.get('inpin')) <= 27)
 
-        if output.get('trigger', False):
-            assert output.get('outpin').isdigit()
-            assert (int(output.get('outpin')) >=0) & (int(output.get('outpin')) <= 27)
+            if output.get('trigger', False):
+                assert output.get('outpin').isdigit()
+                assert (int(output.get('outpin')) >=0) & (int(output.get('outpin')) <= 27)
 
-        if output.get('outpin').isdigit():
-            # For inputs test if outpin is inpin
-            assert int(output.get('outpin')) not in INPINS
-            if output['type'] == 'Input':
-                assert int(output.get('outpin')) != int(output.get('inpin'))
-                INPINS.append(int(output.get('inpin')))
+            if output.get('outpin').isdigit():
+                # For inputs test if outpin is inpin
+                assert int(output.get('outpin')) not in INPINS
+                if output['type'] == 'Input':
+                    assert int(output.get('outpin')) != int(output.get('inpin'))
+                    INPINS.append(int(output.get('inpin')))
 
-        # For integrator, check for recursions
-        if output['type'] == 'Integrator':
-            # Retrieve inputs
-            inputs = [int(i) for i in find_numbers(output['neuron'])]
-            assert self.id not in inputs
+            # For integrator, check for recursions
+            if output['type'] == 'Integrator':
+                # Retrieve inputs
+                inputs = [int(i) for i in find_numbers(output['neuron'])]
+                assert self.id not in inputs
 
+        self.params = output
         return output
 
 class Simulation(QWidget):
@@ -615,6 +743,9 @@ class Simulation(QWidget):
         # Create Constructor button
         self.construct = QPushButton("Create new neuron")
 
+        # Create Constructor button
+        self.triggerwindow = QPushButton("Configure outputs")
+
         # Create apply button
         self.apply = QPushButton("Apply settings")
 
@@ -623,6 +754,8 @@ class Simulation(QWidget):
         layout.addLayout(self.pagelayout)
         layout.addSpacing(10)
         layout.addWidget(self.construct)
+        layout.addSpacing(10)
+        layout.addWidget(self.triggerwindow)
         layout.addSpacing(10)
         layout.addWidget(self.apply)
         self.setLayout(layout)
@@ -777,7 +910,7 @@ class NeuronConstructor(QWidget):
         '''Call the getParams function of the current page'''
         return self.parameters.currentWidget().getParams()
 
-class ConnectionWindow(QWidget):
+class ConnectionPopupWindow(QWidget):
     '''Connection window for updating weights'''
     def __init__(self, weight, delay, start, end):
         super().__init__()
@@ -801,6 +934,155 @@ class ConnectionWindow(QWidget):
         layout.addWidget(self.submit)
 
         self.setLayout(layout)
+
+class TriggerWindow(QWidget):
+    '''Connection window for updating weights'''
+    def __init__(self, usedPins, neurons):
+        super().__init__()
+        self.options = [str(i) for i in range(1,28) if i not in usedPins]
+        self.combos = []
+        self.setWindowTitle("Configure outputs")
+
+        layout = QFormLayout()
+        self.label = QLabel(f"Configure output triggers")
+        layout.addRow(self.label)
+
+        for neuron in neurons:
+            # Extract Name, ID, and outputs
+            name, id, trigger, outpin = neuron['name'], neuron['id'], neuron['trigger'], neuron['outpin']
+            layout.addRow(self.createHLayout(id, name, trigger, outpin))
+
+        # Add submit button
+        self.submit = QPushButton("Apply")
+        layout.addRow(self.submit)
+
+        self.setLayout(layout)
+
+    def createHLayout(self, id, name='', trigger=False, outpin=None):
+        '''Create one line of options'''
+        layout = QHBoxLayout()
+
+        lab = QLabel(f"{name} ({id})")
+        check = QCheckBox()
+        check.setChecked(trigger)
+        output = QComboBox()
+        output.addItems(self.options)
+        output.setCurrentIndex(output.findText(str(outpin)))
+
+        layout.addWidget(lab)
+        layout.addStretch(50)
+        layout.addWidget(check)
+        layout.addWidget(output)
+
+        self.combos.append((output, check))
+        return layout
+    
+    def getOutput(self):
+        '''Return the output'''
+        triggerOutput = []
+        for output, trigger in self.combos:
+            outpin, trig = output.currentText(), trigger.isChecked()
+            triggerOutput.append((outpin, trig))
+        return triggerOutput
+
+class ConnectionWindow(QWidget):
+    '''Connection window for updating weights'''
+    def __init__(self, id=None):
+        super().__init__()
+        self.lines = []
+        self.id = id
+        self.options = list(map(str, range(1,28)))
+        self.setWindowTitle("Manage connections..")
+
+        layout = QFormLayout()
+        self.label = QLabel(f"Configure connections to neuron {self.id if self.id else ''}")
+        layout.addRow(self.label)
+
+        self.lineLayout = QVBoxLayout()
+        self.headers = QHBoxLayout()
+        self.headers.addWidget(QLabel("Input ID"))
+        self.headers.addWidget(QLabel("Weight"))
+        self.headers.addWidget(QLabel("Delay"))
+        self.headers.addSpacing(30)
+        self.lineLayout.addLayout(self.headers)
+        # self.createConnectWindow()
+        layout.addRow(self.lineLayout)
+
+        # Add submit and new button
+        buttonlayout = QHBoxLayout()
+        self.new = QPushButton("New")
+        self.new.clicked.connect(self.createConnectWindow)
+        self.submit = QPushButton("Apply")
+        buttonlayout.addWidget(self.new)
+        buttonlayout.addWidget(self.submit)
+        layout.addRow(buttonlayout)
+
+        self.setLayout(layout)
+
+    def createConnectWindow(self, input=-1, weight=1.0, delay=0.0):
+        '''Create one line of options'''
+        connectParameters = ConnectionParameters(options=self.options, input=input, weight=weight, delay=delay)
+        self.lineLayout.addWidget(connectParameters)
+        self.lines.append(connectParameters)
+        connectParameters.close.clicked.connect(lambda: self._removeConnectWindow(widget=connectParameters))
+        return True
+
+    def _removeConnectWindow(self, widget):
+        '''Remove widget from list and layout'''
+        widget.setParent(None)
+        self.lines.remove(widget)
+
+    def getOutput(self):
+        '''Return the output'''
+        return
+
+    def setParams(self, params, availableIDs):
+        '''Clear all lines then reset'''
+        self.id = params['id']
+        self.options = availableIDs
+        self.label.setText(f"Configure connections to neuron {self.id if self.id is not None else ''}")
+        inputs = find_numbers(params['neuron'])
+        weights = find_numbers(params['weights'])
+        delays = find_numbers(params['delays'])
+        # Clear all lines
+        for line in self.lines: line.setParent(None)
+        self.lines = []
+
+        for i in range(len(inputs)):
+            self.createConnectWindow(input=str(int(inputs[i])), weight=weights[i], delay=delays[i])
+        # self.createConnectWindow()
+        
+
+class ConnectionParameters(QWidget):
+    '''Option widget for connections'''
+    def __init__(self, options=[], input=-1, weight=1.0, delay=0.0):
+        super().__init__()
+        self.options = options
+        self.layout = QHBoxLayout()
+
+        self.inputNeuron = QComboBox()
+        self.inputNeuron.addItems(map(str,self.options))
+        self.inputNeuron.setCurrentIndex(self.inputNeuron.findText(str(input)))
+
+        self.weight = QLineEdit(str(weight))
+        self.delay = QLineEdit(str(delay))
+
+        self.close = QPushButton('x')
+        self.close.setMaximumWidth(30)
+
+        self.layout.addWidget(self.inputNeuron)
+        self.layout.addWidget(self.weight)
+        self.layout.addWidget(self.delay)
+        self.layout.addWidget(self.close)
+
+        self.setLayout(self.layout)
+
+    def getParams(self):
+        '''Return parameters'''
+        inputId = self.inputNeuron.currentText()
+        weight = self.weight.text()
+        delay = self.delay.text()
+        return inputId, weight, delay
 
 if __name__ == '__main__':
     setup()
