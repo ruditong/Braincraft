@@ -505,6 +505,11 @@ class Parameters(QWidget):
 
         self.setLayout(layout)
 
+    def _update_connections(self, id):
+        '''Container to link parameterpage to mainwindow'''
+        self.window().gui.updateBuffer(id)
+        return 
+
     def addPage(self, name, typ, params={}, readonly=False, id=None):
         '''Add a page to combo box'''
         # Create new page and add to stack layout
@@ -588,6 +593,7 @@ class ParameterPage(QWidget):
             if self.id is not None:
                 self.outputs['connections'] = QPushButton("Manage connections")
                 self.connectWindow = ConnectionWindow(id=self.id)
+                self.connectWindow.submit.clicked.connect(self._submit_button)
                 self.connectWindow.hide()
                 self.outputs['connections'].clicked.connect(self._connectWindow_button)
                 pagelayout.addRow(self.outputs['connections'])
@@ -627,6 +633,17 @@ class ParameterPage(QWidget):
 
         self.params = self.getParams(check=False)
     
+    def _submit_button(self):
+        '''Submitting connection window will call parent function'''
+        # Update own parameters
+        inputs, weights, delays = self.connectWindow.getOutput()
+        self.params['neuron'] = ','.join(map(str, inputs))
+        self.params['weights'] = ','.join(map(str, weights))
+        self.params['delays'] = ','.join(map(str, delays))
+        self.setParams(self.params)
+        self.parent()._update_connections(self.id)
+        self.connectWindow.hide()
+
     def _connectWindow_button(self):
         '''Open connection window'''
         self.connectWindow.setParams(self.params, self.parent().getIds())
@@ -986,7 +1003,7 @@ class TriggerWindow(QWidget):
         return triggerOutput
 
 class ConnectionWindow(QWidget):
-    '''Connection window for updating weights'''
+    '''Connection summary window for updating weights'''
     def __init__(self, id=None):
         super().__init__()
         self.lines = []
@@ -1034,11 +1051,19 @@ class ConnectionWindow(QWidget):
 
     def getOutput(self):
         '''Return the output'''
-        return
+        inputs, weights, delays = [], [], []
+        for line in self.lines:
+            inputId, weight, delay = line.getParams()
+            if inputId.isdigit():
+                inputs.append(inputId)
+                weights.append(weight)
+                delays.append(delay)
+        return inputs, weights, delays
 
     def setParams(self, params, availableIDs):
         '''Clear all lines then reset'''
         self.id = params['id']
+        availableIDs = [i for i in availableIDs if i != self.id ]
         self.options = availableIDs
         self.label.setText(f"Configure connections to neuron {self.id if self.id is not None else ''}")
         inputs = find_numbers(params['neuron'])
@@ -1051,7 +1076,6 @@ class ConnectionWindow(QWidget):
         for i in range(len(inputs)):
             self.createConnectWindow(input=str(int(inputs[i])), weight=weights[i], delay=delays[i])
         # self.createConnectWindow()
-        
 
 class ConnectionParameters(QWidget):
     '''Option widget for connections'''
