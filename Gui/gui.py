@@ -134,7 +134,7 @@ class GUI(QWidget):
     def _save_button(self):
         '''Save the current layout'''
         # Get savepath
-        fileName = QFileDialog.getSaveFileName(self, "Save Layout", "/home/pi/Projects/Braincraft")
+        fileName = QFileDialog.getSaveFileName(self, "Save Layout", "/home/pi/Projects/Braincraft/exampleLayouts")
         if not fileName[0]: return
 
         # Strip file ending
@@ -149,7 +149,7 @@ class GUI(QWidget):
 
     def _load_button(self):
         '''Load layout'''
-        fileName = QFileDialog.getOpenFileName(self, "Open Layout", "/home/pi/Projects/Braincraft")
+        fileName = QFileDialog.getOpenFileName(self, "Open Layout", "/home/pi/Projects/Braincraft/exampleLayouts")
         
         # Check filename is text file
         if pathlib.Path(fileName[0]).suffix != '.txt': return
