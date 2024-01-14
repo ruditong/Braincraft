@@ -4,7 +4,7 @@ gui.py
 Implements user interface for interacting with electrical circuit
 '''
 
-import sys
+import sys, os, pathlib
 import time
 import re, random
 from utils import *
@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,QHBoxLayout, QCheckBox, QPushButton,
     QMainWindow, QStatusBar, QRadioButton, QLabel,
     QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
-    QGraphicsItem, QGraphicsLineItem)
+    QGraphicsItem, QGraphicsLineItem, QMenuBar, QFileDialog)
 from Visualizer import *
 
 def find_numbers(s):
@@ -125,9 +125,89 @@ class GUI(QWidget):
         info.simulation.construct.clicked.connect(self._construct_button)
         info.simulation.triggerwindow.clicked.connect(self._trigger_button)
         info.simulation.showCheck.clicked.connect(self._toggle_show)
+        info.simulation.save.clicked.connect(self._save_button)
+        info.simulation.load.clicked.connect(self._load_button)
         info.parameters.updatebutton.clicked.connect(self._update_button)
         info.parameters.removebutton.clicked.connect(self._remove_button)
         return info
+
+    def _save_button(self):
+        '''Save the current layout'''
+        # Get savepath
+        fileName = QFileDialog.getSaveFileName(self, "Save Layout", "/home/pi/Projects/Braincraft")
+        if not fileName[0]: return
+
+        # Strip file ending
+        name, ext = os.path.splitext(fileName[0])
+        fullname = name + '.txt'
+
+        # Get all pages and save their parameters
+        with open(fullname, 'w') as file:
+            for page in self.info.parameters.pages:
+                params = page.getParams()
+                file.write(str(params)+'\n')
+
+    def _load_button(self):
+        '''Load layout'''
+        fileName = QFileDialog.getOpenFileName(self, "Open Layout", "/home/pi/Projects/Braincraft")
+        
+        # Check filename is text file
+        if pathlib.Path(fileName[0]).suffix != '.txt': return
+
+        # Clear all buffers
+        self.removeAll()
+
+        # Now loop over files and add them
+        with open(fileName[0], 'r') as file:
+            for line in file:
+                line = line.rstrip()
+                if line[0] == '{' and line[-1] == '}':
+                    params = eval(line)
+                    self.addBuffer(params)
+                    
+    def removeAll(self):
+        '''Remove all buffers'''
+        # Clear all buffers (not elegant but works..)
+        while len(self.buffers) > 0: self._remove_button()
+
+    def addBuffer(self, params):
+        '''Add a buffer given params'''
+        # Now create a databuffer for the neuron
+        T = float(self.info.simulation.T.text())
+        dt = float(self.info.simulation.dt.text())
+        if params['type'] == 'Input':
+            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt, id=len(self.buffers))
+            buffer.visible = params['visible']
+
+        elif params['type'] == 'Integrator':
+            inputs = find_numbers(params['neuron'])
+            inputbuffers = [self.buffers[int(i)] for i in inputs]
+            weights = find_numbers(params['weights'])
+            delays = find_numbers(params['delays'])
+            if len(inputs) != len(weights): 
+                print("Length of inputs != length of weights")
+                return False
+            if len(inputs) != len(delays):
+                print("Length of inputs != length of delays")
+                return False
+            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights, id=len(self.buffers))
+            buffer.visible=params['visible']
+
+        self.buffers.append(buffer)
+        self.plotter.addDataStream(buffer, color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255)
+        self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2-NEURONRADIUS, self.painter.scene.height()/2-NEURONRADIUS]), 
+                                     color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255, 
+                                     label=str(len(self.buffers)-1), buffer=buffer, id=len(self.buffers)-1, typ=params['type'])
+
+        # Add a page to parameters
+        page = self.info.parameters.addPage(name=params['name'], typ=params['type'], params=params, readonly=True, id=len(self.buffers)-1)
+        
+        # Connect page buttons
+        page.outputs['visible'].toggled.connect(lambda: self._visible_check(page.outputs['visible'].isChecked()))
+
+        # Now call update button to apply all parameters
+        params = page.getParams()
+        self.updateBuffer(len(self.buffers)-1, params)
 
     def createPainter(self):
         '''Create painter widget and connect functions'''
@@ -279,54 +359,13 @@ class GUI(QWidget):
 
     def _construct_submit(self):
         '''Process constructor and close the window'''
-        # Retrieve information
-        
+        # Retrieve information      
         try: params = self.constructorWindow.getParams()
         except AssertionError: 
             print("Could not generate neuron - Check parameters!")
             return
-
-        if self.constructorWindow.radio_input.isChecked(): 
-            typ = 'Input'
-        elif self.constructorWindow.radio_integrator.isChecked(): 
-            typ = 'Integrator'
         
-        # Now create a databuffer for the neuron
-        T = float(self.info.simulation.T.text())
-        dt = float(self.info.simulation.dt.text())
-        if params['type'] == 'Input':
-            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt, id=len(self.buffers))
-            buffer.visible = params['visible']
-
-        elif params['type'] == 'Integrator':
-            inputs = find_numbers(params['neuron'])
-            inputbuffers = [self.buffers[int(i)] for i in inputs]
-            weights = find_numbers(params['weights'])
-            delays = find_numbers(params['delays'])
-            if len(inputs) != len(weights): 
-                print("Length of inputs != length of weights")
-                return False
-            if len(inputs) != len(delays):
-                print("Length of inputs != length of delays")
-                return False
-            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights, id=len(self.buffers))
-            buffer.visible=params['visible']
-
-        self.buffers.append(buffer)
-        self.plotter.addDataStream(buffer, color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255)
-        self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2-NEURONRADIUS, self.painter.scene.height()/2-NEURONRADIUS]), 
-                                     color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255, 
-                                     label=str(len(self.buffers)-1), buffer=buffer, id=len(self.buffers)-1, typ=params['type'])
-
-        # Add a page to parameters
-        page = self.info.parameters.addPage(name=params['name'], typ=params['type'], params=params, readonly=True, id=len(self.buffers)-1)
-        
-        # Connect page buttons
-        page.outputs['visible'].toggled.connect(lambda: self._visible_check(page.outputs['visible'].isChecked()))
-
-        # Now call update button to apply all parameters
-        params = page.getParams()
-        self.updateBuffer(len(self.buffers)-1, params)
+        self.addBuffer(params)
 
     def _construct_close(self):
         '''Close he constructor'''
@@ -766,6 +805,13 @@ class Simulation(QWidget):
         # Create apply button
         self.apply = QPushButton("Apply settings")
 
+        # Create Save and Load
+        self.saveloadlayout = QHBoxLayout()
+        self.save = QPushButton("Save layout")
+        self.load = QPushButton("Load layout")
+        self.saveloadlayout.addWidget(self.save)
+        self.saveloadlayout.addWidget(self.load)
+
         layout.addLayout(controllayout)
         layout.addSpacing(20)
         layout.addLayout(self.pagelayout)
@@ -775,6 +821,8 @@ class Simulation(QWidget):
         layout.addWidget(self.triggerwindow)
         layout.addSpacing(10)
         layout.addWidget(self.apply)
+        layout.addSpacing(10)
+        layout.addLayout(self.saveloadlayout)
         self.setLayout(layout)
 
 class InfoBar(QWidget):

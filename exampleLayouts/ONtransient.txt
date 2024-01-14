@@ -1,0 +1,4 @@
+{'type': 'Input', 'id': 0, 'name': 'Input', 'outpin': '', 'threshold': '0.5', 'tau': '0.05', 'inpin': '27', 'invert': False, 'relu': False, 'sigmoid': False, 'kernel': False, 'trigger': False, 'visible': True}
+{'type': 'Integrator', 'id': 1, 'name': 'neuron1', 'outpin': '', 'threshold': '0.5', 'tau': '0.2', 'neuron': '0', 'weights': '1.0', 'delays': '0.0', 'invert': False, 'relu': False, 'sigmoid': False, 'kernel': True, 'trigger': False, 'visible': True}
+{'type': 'Integrator', 'id': 2, 'name': 'neuron2', 'outpin': '', 'threshold': '0.5', 'tau': '0.05', 'neuron': '0', 'weights': '1.0', 'delays': '0.0', 'invert': False, 'relu': False, 'sigmoid': False, 'kernel': False, 'trigger': False, 'visible': True}
+{'type': 'Integrator', 'id': 3, 'name': 'output', 'outpin': '23', 'threshold': '0.5', 'tau': '0.05', 'neuron': '1,2', 'weights': '-1.0,1.0', 'delays': '0.1,0.0', 'invert': False, 'relu': False, 'sigmoid': False, 'kernel': False, 'trigger': True, 'visible': True}
