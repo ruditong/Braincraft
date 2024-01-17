@@ -13,6 +13,7 @@ import pyqtgraph as pg
 import threading
 
 COLORMAP = pl.cm.tab10
+MAXFIRINGRATE = 50
 
 # GPIO stuff
 def setup():
@@ -29,7 +30,7 @@ def close():
 class DynamicBuffer():
     '''Buffer class that stores data in real time for plotting purposes'''
     def __init__(self, T, dt, func=lambda: 0, init=0, trigger=None, outpin=None, 
-                 relu=False, invert=False, id=None):
+                 relu=False, invert=False, id=None, label='', poisson=False):
         '''
         Initialise buffer. The buffer is set to size=T/dt.
         Parameters:
@@ -47,8 +48,9 @@ class DynamicBuffer():
         self.databuffer = collections.deque([init]*self._bufsize, self._bufsize)
         self.setFunc(func)
         self.setTrigger(trigger, outpin)
-        self.relu, self.invert = False, False
+        self.relu, self.invert, self.poisson = relu, invert, poisson
         self.id = id
+        self.label = label
 
     def setTrigger(self, trigger, outpin):
         '''Set up output trigger'''
@@ -79,6 +81,8 @@ class DynamicBuffer():
         if self.relu: sample = relu(sample, self.relu)
         # Check for inversion 
         if self.invert: sample = 1-sample
+        # Check for Poisson spiking
+        if self.poisson: sample = poisson(MAXFIRINGRATE*sample, self.dt)
         self.databuffer.append(sample)
         if self.trigger is not None: self._trigger(sample)
 
@@ -89,8 +93,9 @@ class DynamicBuffer():
 
 class PinBuffer(DynamicBuffer):
     '''Data buffer for pin inputs. func will act on the input of the pin.'''
-    def __init__(self, pin, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None, id=None):
-        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id)
+    def __init__(self, pin, T, dt, func=lambda x, *y: x, init=0, trigger=None, 
+                 outpin=None, id=None, label=''):
+        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id, label=label)
         self.pin = pin
 
         # Set up the pin
@@ -106,8 +111,8 @@ class PinBuffer(DynamicBuffer):
 class Integrator(DynamicBuffer):
     '''Integrate inputs'''
     def __init__(self, inputs, T, dt, func=lambda x, *y: x, init=0, trigger=None, outpin=None, delay=0, 
-                 weights=1., id=None):
-        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id)
+                 weights=1., id=None, label=''):
+        super().__init__(T, dt, init=init, trigger=trigger, outpin=outpin, id=id, label=label)
         self.inputs = inputs
         # Check weights
         self.setWeights(weights)
@@ -159,6 +164,12 @@ def relu(x, threshold=0):
     elif x > 1: return 1
     else: return x
 
+def poisson(lam, dt):
+    '''Poisson point process with mean l'''
+    prob = lam * dt
+    val = np.random.rand() < prob
+    return val
+
 class expKernel():
     '''Apply an exponential kernel to simulated data mimicking neuron EPSPs'''
     def __init__(self, tau):
@@ -166,8 +177,11 @@ class expKernel():
         self.x = 0
 
     def __call__(self, x, *y):
-        self.x = self.x + (x-self.x)/self.tau
-        return min([self.x, 1])
+        dx = x-self.x
+        if dx > 0: self.x = self.x + (x-self.x)/(self.tau/4)
+        else: self.x = self.x + (x-self.x)/self.tau
+        return self.x
+        # return min([self.x, 1])
 
 class Sigmoid():
     '''Apply a sigmoid functoin to data'''

@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QStatusBar, QRadioButton, QLabel,
     QGraphicsScene, QGraphicsView, QGraphicsEllipseItem,
     QGraphicsItem, QGraphicsLineItem, QMenuBar, QFileDialog)
+from PyQt5.QtCore import pyqtSlot
 from Visualizer import *
 
 def find_numbers(s):
@@ -35,7 +36,7 @@ def getParamsFromBuffer(buffer):
               'tau'         : str(buffer.func.tau) if isinstance(buffer.func, expKernel) else '0.05',
               'invert'      : buffer.invert,
               'relu'        : buffer.relu,
-              'sigmoid'     : False,
+              'poisson'     : False,
               'kernel'      : isinstance(buffer.func, expKernel),
               'trigger'     : buffer.trigger is not None,
               'visible'     : buffer.visible,
@@ -69,6 +70,16 @@ class MainWindow(QMainWindow):
         # Create gui
         self.gui = GUI(app=app, dt=dt, statusbar=self.statusBar)  
         self.setCentralWidget(self.gui)
+
+        # # TEST
+        # self.relay_thread = RelayThread()
+        # self.relay_thread.event_detected.connect(self.on_gpio_event)
+        # self.relay_thread.start()
+
+    # @pyqtSlot(int)
+    # def on_gpio_event(self, channel):
+    #     # your code here!
+    #     print("An event occurred on channel {}".format(channel))
 
     def run(self):
         self.show()
@@ -113,7 +124,7 @@ class GUI(QWidget):
         # Misc attributes
         self.time = 0
         self.counter = 0
-        self.skipframes = int(0.2/dt)
+        self.skipframes = int(0.5/dt)
 
     def createInfo(self):
         '''Create an InfoBar widget'''
@@ -125,11 +136,18 @@ class GUI(QWidget):
         info.simulation.construct.clicked.connect(self._construct_button)
         info.simulation.triggerwindow.clicked.connect(self._trigger_button)
         info.simulation.showCheck.clicked.connect(self._toggle_show)
+        info.simulation.labelCheck.clicked.connect(self._toggle_label)
         info.simulation.save.clicked.connect(self._save_button)
         info.simulation.load.clicked.connect(self._load_button)
-        info.parameters.updatebutton.clicked.connect(self._update_button)
+        # info.parameters.updatebutton.clicked.connect(self._update_button)
         info.parameters.removebutton.clicked.connect(self._remove_button)
         return info
+
+    def _toggle_label(self, val):
+        '''Toggle whether ID or label is shown'''
+        for neuron in self.painter.scene.neurons:
+            neuron.draw_label = val
+            neuron.update()
 
     def _save_button(self):
         '''Save the current layout'''
@@ -176,7 +194,7 @@ class GUI(QWidget):
         T = float(self.info.simulation.T.text())
         dt = float(self.info.simulation.dt.text())
         if params['type'] == 'Input':
-            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt, id=len(self.buffers))
+            buffer = PinBuffer(pin=int(params['inpin']), T=T, dt=dt, id=len(self.buffers), label=params['name'])
             buffer.visible = params['visible']
 
         elif params['type'] == 'Integrator':
@@ -190,14 +208,15 @@ class GUI(QWidget):
             if len(inputs) != len(delays):
                 print("Length of inputs != length of delays")
                 return False
-            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights, id=len(self.buffers))
+            buffer = Integrator(inputs=inputbuffers, T=T, dt=dt, delay=delays, weights=weights, id=len(self.buffers), label=params['name'])
             buffer.visible=params['visible']
 
         self.buffers.append(buffer)
         self.plotter.addDataStream(buffer, color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255)
+
         self.painter.scene.addNeuron(pos=(np.random.rand(2)*2-1)*np.array([self.painter.scene.width()/2-NEURONRADIUS, self.painter.scene.height()/2-NEURONRADIUS]), 
                                      color=np.array(COLORMAP(len(self.buffers)-1))[:-1]*255, 
-                                     label=str(len(self.buffers)-1), buffer=buffer, id=len(self.buffers)-1, typ=params['type'])
+                                     buffer=buffer, typ=params['type'], draw_label=self.info.simulation.labelCheck.checkState())
 
         # Add a page to parameters
         page = self.info.parameters.addPage(name=params['name'], typ=params['type'], params=params, readonly=True, id=len(self.buffers)-1)
@@ -291,9 +310,11 @@ class GUI(QWidget):
     def _apply_button(self):
         '''Apply new settings fo the plotter'''
         # Retrieve parameters
+        global MAXFIRINGRATE
         T = float(self.info.simulation.T.text())
         dt = float(self.info.simulation.dt.text())
         skip = int(self.info.simulation.ds.text())
+        # MAXFIRINGRATE = float(self.info.simulation.maxfiringrate.text())
         # Check that values are proper
         try:
             assert (T > 0) & (dt > 0.001) & (T > dt) 
@@ -443,7 +464,11 @@ class GUI(QWidget):
         '''Update the buffer specified in id'''
         if params is None: params = self.info.parameters.stackedLayout.widget(id).getParams()
         else: self.updatePage(id, params)
-        
+
+        # Update name
+        label = params['name']
+        self.buffers[id].label = label
+
         # Now go through params and change the buffer accordingly
         # Check for trigger
         trigger, outpin, threshold = params['trigger'], params['outpin'], params['threshold']
@@ -453,15 +478,17 @@ class GUI(QWidget):
         else: self.buffers[id].setTrigger(None, outpin)
 
         # Check for functions
-        relu, sigmoid, invert, kernel = params['relu'], params['sigmoid'], params['invert'], params['kernel']
+        relu, poisson, invert, kernel = params['relu'], params['poisson'], params['invert'], params['kernel']
         func = lambda x, *y: x
         if kernel:
             tau = float(params['tau'])/self.dt
+            if tau < 0.001: tau = 0.05/self.dt
             func = expKernel(tau=tau)
         self.buffers[id].setFunc(func=func)
         if relu: self.buffers[id].relu = float(threshold)
         else: self.buffers[id].relu = False
         self.buffers[id].invert = invert
+        self.buffers[id].poisson = poisson
 
         # Check for integrator parameters
         if params['type'] == 'Integrator':
@@ -493,6 +520,9 @@ class GUI(QWidget):
                 self.painter.scene.addConnection(self.painter.scene.neurons[int(inputid)], 
                                                  self.painter.scene.neurons[id], weight=weights[i], delay=delays[i])
 
+        # Update neuron appearance
+        self.painter.scene.neurons[id].update()
+
     def updateSimulation(self):
         '''Update plots'''
         # Only update plotter if "Run"-checkbox is checked
@@ -508,7 +538,6 @@ class GUI(QWidget):
                 self.time = time_now
                 self.counter = 0
                 self.statusBar.showMessage(f"FPS = {freq: .1f} Hz")
-        
         self.app.processEvents()
 
 class Parameters(QWidget):
@@ -538,9 +567,9 @@ class Parameters(QWidget):
         self.removebutton = QPushButton("Remove neuron")
         layout.addWidget(self.removebutton)
 
-        # Create update button
-        self.updatebutton = QPushButton("Update settings")
-        layout.addWidget(self.updatebutton)
+        # # Create update button
+        # self.updatebutton = QPushButton("Update settings")
+        # layout.addWidget(self.updatebutton)
 
         self.setLayout(layout)
 
@@ -553,9 +582,17 @@ class Parameters(QWidget):
         '''Add a page to combo box'''
         # Create new page and add to stack layout
         self.pages.append(ParameterPage(type=typ, params=params, id=id))
-        self.pages[-1].outputs['name'].setReadOnly(readonly)
+        # self.pages[-1].outputs['name'].setReadOnly(readonly)
         if typ == 'Input': self.pages[-1].outputs['inpin'].setReadOnly(readonly)
         self.stackedLayout.addWidget(self.pages[-1])
+
+        if readonly:
+            page = self.pages[-1]
+            for key in page.outputs.keys():
+                if isinstance(page.outputs[key], QLineEdit):
+                    page.outputs[key].editingFinished.connect(self.window().gui._update_button)
+                elif isinstance(page.outputs[key], QCheckBox):
+                    page.outputs[key].stateChanged.connect(self.window().gui._update_button)
 
         # Add page to dropdown
         self.pageCombo.addItem(name)
@@ -650,9 +687,9 @@ class ParameterPage(QWidget):
         if params.get('relu', False): self.outputs['relu'].setChecked(True)
         checklayout.addWidget(self.outputs['relu'], 1, 0)
 
-        self.outputs['sigmoid'] = QCheckBox("Sigmoid")
-        if params.get('sigmoid', False): self.outputs['sigmoid'].setChecked(True)
-        checklayout.addWidget(self.outputs['sigmoid'], 0, 1)
+        self.outputs['poisson'] = QCheckBox("Spiking")
+        if params.get('poisson', False): self.outputs['poisson'].setChecked(True)
+        checklayout.addWidget(self.outputs['poisson'], 0, 1)
 
         self.outputs['kernel'] = QCheckBox("Kernel")
         if params.get('kernel', False): self.outputs['kernel'].setChecked(True)
@@ -775,16 +812,18 @@ class Simulation(QWidget):
         layout = QVBoxLayout()
 
         # Create Checkbox and reset button
-        controllayout = QHBoxLayout()
+        controllayout = QGridLayout()
         self.checkBox = QCheckBox("Run")
         self.showCheck = QCheckBox("Toggle show")
         self.showCheck.setChecked(True)
         self.painterCheck = QCheckBox("Toggle vis.")
         self.painterCheck.setChecked(True)
-        self.reset = QPushButton("Reset")
-        controllayout.addWidget(self.checkBox)
-        controllayout.addWidget(self.showCheck)
-        controllayout.addWidget(self.painterCheck)
+        self.labelCheck = QCheckBox("Toggle label")
+        # self.reset = QPushButton("Reset")
+        controllayout.addWidget(self.checkBox, 0, 0)
+        controllayout.addWidget(self.showCheck, 1, 0)
+        controllayout.addWidget(self.painterCheck, 1, 1)
+        controllayout.addWidget(self.labelCheck, 0, 1)
         #controllayout.addWidget(self.reset)
 
         # Create form layout
@@ -792,9 +831,11 @@ class Simulation(QWidget):
         self.T = QLineEdit("1")
         self.dt = QLineEdit("0.01")
         self.ds = QLineEdit("2")
+        # self.maxfiringrate = QLineEdit("50")
         self.pagelayout.addRow(f"Time (s):", self.T)
         self.pagelayout.addRow(f"dt (s):", self.dt)
         self.pagelayout.addRow(f"Downsample:", self.ds)
+        # self.pagelayout.addRow(f"Max. spike rate:", self.maxfiringrate)
 
         # Create Constructor button
         self.construct = QPushButton("Create new neuron")
@@ -1155,6 +1196,22 @@ class ConnectionParameters(QWidget):
         weight = self.weight.text()
         delay = self.delay.text()
         return inputId, weight, delay
+
+### Tests
+from six.moves.queue import Queue
+
+class RelayThread(QtCore.QThread):
+    event_detected = QtCore.pyqtSignal(int)
+    def __init__(self, *args, **kwargs):
+        QtCore.QThread.__init__(self, *args, **kwargs)
+        self.queue = Queue()
+        GPIO.setup(23, GPIO.IN)
+        GPIO.add_event_detect(23, GPIO.BOTH, callback=self.queue.put)
+
+    def run(self):
+        while True:
+            self.event_detected.emit(self.queue.get())
+
 
 if __name__ == '__main__':
     setup()

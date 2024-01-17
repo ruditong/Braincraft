@@ -19,16 +19,17 @@ NEURONRADIUS = 20
 class Neuron(QGraphicsItem):
     '''Draws a neuron that can be moved around'''
     def __init__(self, input=False, rad=NEURONRADIUS, pos=(0,0), color=(255,0,0), 
-                 label='', id=0, typ='Integrator', buffer=None, *args, **kwargs):
+                 typ='Integrator', buffer=None, draw_label=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lines = []
         self.input = input
         self.setFlag(self.ItemIsMovable)
         self.setFlag(self.ItemSendsScenePositionChanges)
-        self.label = label
+        # self.label = label
         self.buffer = buffer
-        self.id = id
+        self.id = self.buffer.id
         self.type = typ
+        self.draw_label=draw_label
 
         # Painter parameters
         self.centre = pos
@@ -41,13 +42,13 @@ class Neuron(QGraphicsItem):
         self.fontpen = QtGui.QPen(QtCore.Qt.black, 0)
         self.brush = QtGui.QBrush(QtGui.QColor(*self.color))
 
-        # Make a tooltip
-        self.createTooltip()
+        # # Make a tooltip
+        # self.createTooltip()
         self.setAcceptHoverEvents(True)
 
     def createTooltip(self):
         '''Update the tooltip'''
-        self.setToolTip(f"<h5>Neuron ID = {self.id}<hr>Type: {self.type}<br>#Connections: {len(self.lines)}")
+        self.setToolTip(f"<h5>Neuron ID = {self.buffer.id}<hr>Type: {self.type}<br>#Connections: {len(self.lines)}")
         
     def setColor(self, color):
         '''Set the colour of the brush'''
@@ -56,16 +57,17 @@ class Neuron(QGraphicsItem):
 
     def paint(self, painter, option, widget=None):
         '''Controls the appearance of the neuron'''
-        # super().paint(painter, option, widget)
-        # painter.save()
         painter.setPen(self.pen)
         painter.setBrush(self.brush)
         if self.type == 'Integrator': painter.drawEllipse(self.ellipse)
         elif self.type == 'Input': painter.drawRoundedRect(self.ellipse, 4, 4)
         painter.setFont(QtGui.QFont("Arial", 12, QtGui.QFont.Bold))
         painter.setPen(self.fontpen)
-        painter.drawText(self.ellipse, QtCore.Qt.AlignCenter, self.label)
-        # painter.restore()
+        if self.draw_label: 
+            if len(self.buffer.label) > 3: label = self.buffer.label[:3] + '.'
+            else: label = self.buffer.label
+            painter.drawText(self.ellipse, QtCore.Qt.AlignCenter, label)
+        else: painter.drawText(self.ellipse, QtCore.Qt.AlignCenter, str(self.buffer.id))
 
     def boundingRect(self):
         '''Calculates the bounding box for collision detection'''
@@ -98,10 +100,10 @@ class Neuron(QGraphicsItem):
     
     def updateID(self, id):
         '''Update ID'''
-        self.id = id
-        self.label = str(id)
+        self.id = self.buffer.id
+        # self.label = str(id)
         # Also update color
-        color = np.array(COLORMAP(id))[:-1]*255
+        color = np.array(COLORMAP(self.id))[:-1]*255
         self.setColor(color)
         self.baseColor = color
         self.pen = QtGui.QPen(QtGui.QColor(*color), 2)
@@ -262,9 +264,9 @@ class Scene(QGraphicsScene):
         self.mouseMove = lambda *x: None
         self.mouseRelease = lambda *x: None
 
-    def addNeuron(self, pos, color=(255,0,0), label='', buffer=None, id=0, typ='Integrator'):
+    def addNeuron(self, pos, color=(255,0,0), buffer=None, typ='Integrator', draw_label=False):
         '''Add neuron to canvas and move to position pos'''
-        neuron = Neuron(rad=self.rad, color=color, label=label, buffer=buffer, id=id, typ=typ)
+        neuron = Neuron(rad=self.rad, color=color, buffer=buffer, typ=typ, draw_label=draw_label)
         neuron.setPos(*pos)
         self.addItem(neuron)
         self.neurons.append(neuron)
