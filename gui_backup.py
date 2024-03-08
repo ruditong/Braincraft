@@ -134,12 +134,12 @@ class GUI(QWidget):
         self.connectionWindow = None
         self.triggerWindow = None
         info.simulation.apply.clicked.connect(self._apply_button)
-        info.parameters.construct.clicked.connect(self._construct_button)
-        info.parameters.triggerwindow.clicked.connect(self._trigger_button)
+        info.simulation.construct.clicked.connect(self._construct_button)
+        info.simulation.triggerwindow.clicked.connect(self._trigger_button)
         info.simulation.showCheck.clicked.connect(self._toggle_show)
         info.simulation.labelCheck.clicked.connect(self._toggle_label)
-        info.parameters.save.clicked.connect(self._save_button)
-        info.parameters.load.clicked.connect(self._load_button)
+        info.simulation.save.clicked.connect(self._save_button)
+        info.simulation.load.clicked.connect(self._load_button)
         # info.parameters.updatebutton.clicked.connect(self._update_button)
         info.parameters.removebutton.clicked.connect(self._remove_button)
         return info
@@ -297,7 +297,7 @@ class GUI(QWidget):
     def _painter_press(self, item):
         '''Change to inspector page'''
         if (item is not None) and (isinstance(item, Neuron)):
-            self.info.tabs.setCurrentIndex(0)
+            self.info.tabs.setCurrentIndex(1)
             self.info.parameters.pageCombo.setCurrentIndex(item.id)
             self.info.parameters.switchPage()
         elif (item is not None) and (isinstance(item, Connection)):
@@ -574,22 +574,9 @@ class Parameters(QWidget):
         self.removebutton = QPushButton("Remove neuron")
         layout.addWidget(self.removebutton)
 
-        # Add settings buttons
-        # Create Constructor button
-        self.construct = QPushButton("Create new neuron")
-
-        # Create Constructor button
-        self.triggerwindow = QPushButton("Configure triggers")
-
-        # Create Save and Load
-        self.saveloadlayout = QHBoxLayout()
-        self.save = QPushButton("Save layout")
-        self.load = QPushButton("Load layout")
-        self.saveloadlayout.addWidget(self.save)
-        self.saveloadlayout.addWidget(self.load)
-        layout.addWidget(self.construct)
-        layout.addWidget(self.triggerwindow)
-        layout.addLayout(self.saveloadlayout)
+        # # Create update button
+        # self.updatebutton = QPushButton("Update settings")
+        # layout.addWidget(self.updatebutton)
 
         self.setLayout(layout)
 
@@ -663,10 +650,10 @@ class ParameterPage(QWidget):
         pagelayout.addRow(f"Name", self.outputs['name'])
         self.outputs['outpin'] = QLineEdit(params.get('outpin', ''))
         pagelayout.addRow(f"Output pin", self.outputs['outpin'])
-        self.outputs['threshold'] = QLineEdit(params.get('threshold', '0.0'))
+        self.outputs['threshold'] = QLineEdit(params.get('threshold', '0.5'))
         pagelayout.addRow(f"ReLU threshold", self.outputs['threshold'])
         self.outputs['tau'] = QLineEdit(params.get('tau', '0.05'))
-        # pagelayout.addRow(f"Kernel tau", self.outputs['tau'])
+        pagelayout.addRow(f"Kernel tau", self.outputs['tau'])
 
         if self.type == 'Input':
             self.outputs['inpin'] = QLineEdit(params.get('inpin', ''))
@@ -701,19 +688,19 @@ class ParameterPage(QWidget):
         checklayout = QGridLayout()
         self.outputs['invert'] = QCheckBox("Invert")
         if params.get('invert', False): self.outputs['invert'].setChecked(True)
-        # checklayout.addWidget(self.outputs['invert'], 0, 0)
+        checklayout.addWidget(self.outputs['invert'], 0, 0)
 
         self.outputs['relu'] = QCheckBox("ReLU")
-        if params.get('relu', True): self.outputs['relu'].setChecked(True)
-        # checklayout.addWidget(self.outputs['relu'], 1, 0)
+        if params.get('relu', False): self.outputs['relu'].setChecked(True)
+        checklayout.addWidget(self.outputs['relu'], 1, 0)
 
         self.outputs['poisson'] = QCheckBox("Spiking")
         if params.get('poisson', False): self.outputs['poisson'].setChecked(True)
-        # checklayout.addWidget(self.outputs['poisson'], 0, 1)
+        checklayout.addWidget(self.outputs['poisson'], 0, 1)
 
         self.outputs['kernel'] = QCheckBox("Kernel")
-        if params.get('kernel', True): self.outputs['kernel'].setChecked(True)
-        # checklayout.addWidget(self.outputs['kernel'], 1, 1)
+        if params.get('kernel', False): self.outputs['kernel'].setChecked(True)
+        checklayout.addWidget(self.outputs['kernel'], 1, 1)
 
         self.outputs['trigger'] = QCheckBox("Trigger")
         if params.get('trigger', False): self.outputs['trigger'].setChecked(True)
@@ -834,17 +821,17 @@ class Simulation(QWidget):
         # Create Checkbox and reset button
         controllayout = QGridLayout()
         self.checkBox = QCheckBox("Run")
-        self.checkBox.setChecked(True)
         self.showCheck = QCheckBox("Toggle plot")
         self.showCheck.setChecked(True)
         self.painterCheck = QCheckBox("Toggle highlight")
         self.painterCheck.setChecked(True)
         self.labelCheck = QCheckBox("Toggle label")
-        self.labelCheck.setChecked(True)
+        # self.reset = QPushButton("Reset")
         controllayout.addWidget(self.checkBox, 0, 0)
         controllayout.addWidget(self.showCheck, 1, 0)
         controllayout.addWidget(self.painterCheck, 1, 1)
         controllayout.addWidget(self.labelCheck, 0, 1)
+        #controllayout.addWidget(self.reset)
 
         # Create form layout
         self.pagelayout = QFormLayout()
@@ -857,33 +844,33 @@ class Simulation(QWidget):
         self.pagelayout.addRow(f"Downsample:", self.ds)
         # self.pagelayout.addRow(f"Max. spike rate:", self.maxfiringrate)
 
-        # # Create Constructor button
-        # self.construct = QPushButton("Create new neuron")
+        # Create Constructor button
+        self.construct = QPushButton("Create new neuron")
 
-        # # Create Constructor button
-        # self.triggerwindow = QPushButton("Configure triggers")
+        # Create Constructor button
+        self.triggerwindow = QPushButton("Configure triggers")
 
         # Create apply button
         self.apply = QPushButton("Apply settings")
 
-        # # Create Save and Load
-        # self.saveloadlayout = QHBoxLayout()
-        # self.save = QPushButton("Save layout")
-        # self.load = QPushButton("Load layout")
-        # self.saveloadlayout.addWidget(self.save)
-        # self.saveloadlayout.addWidget(self.load)
+        # Create Save and Load
+        self.saveloadlayout = QHBoxLayout()
+        self.save = QPushButton("Save layout")
+        self.load = QPushButton("Load layout")
+        self.saveloadlayout.addWidget(self.save)
+        self.saveloadlayout.addWidget(self.load)
 
         layout.addLayout(controllayout)
         layout.addSpacing(20)
         layout.addLayout(self.pagelayout)
         layout.addSpacing(10)
-        # layout.addWidget(self.construct)
-        # layout.addSpacing(10)
-        # layout.addWidget(self.triggerwindow)
-        # layout.addSpacing(10)
+        layout.addWidget(self.construct)
+        layout.addSpacing(10)
+        layout.addWidget(self.triggerwindow)
+        layout.addSpacing(10)
         layout.addWidget(self.apply)
-        # layout.addSpacing(10)
-        # layout.addLayout(self.saveloadlayout)
+        layout.addSpacing(10)
+        layout.addLayout(self.saveloadlayout)
         self.setLayout(layout)
 
 class InfoBar(QWidget):
@@ -899,7 +886,7 @@ class InfoBar(QWidget):
         self.simulation = Simulation()
         self.parameters = Parameters()
         self.tabs.addTab(self.parameters, "Parameters")
-        self.tabs.addTab(self.simulation, "Advanced")
+        self.tabs.addTab(self.simulation, "Simulation")
         
         layout.addWidget(self.tabs)
 
@@ -969,6 +956,7 @@ class DynamicPlotter(pg.GraphicsLayoutWidget):
         yaxis = self.plot.getAxis("left")
         yaxis.setTicks([[(v, str(int(v//2))) for v in ticks]])
         
+
 class Curve():
     '''Curve for ploatting datastreams'''
     def __init__(self, canvas, buffer, color=np.random.randint(0, 255, size=(3,))):

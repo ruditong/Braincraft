@@ -197,6 +197,23 @@ class ReLU():
         elif x > 1: return 1
         else: return x
 
+
+# # PyQT GPIO interface
+# from six.moves.queue import Queue
+# from PyQt5 import QtCore, QtGui
+
+# class RelayThread(QtCore.QThread):
+#     event_detected = QtCore.pyqtSignal(int)
+#     def __init__(self, *args, **kwargs):
+#         QtCore.QThread.__init__(self, *args, **kwargs)
+#         self.queue = Queue()
+#         GPIO.setup(23, GPIO.IN)
+#         GPIO.add_event_detect(23, GPIO.RISING, callback=self.queue.put)
+
+#     def run(self):
+#         while True:
+#             self.event_detected.emit(self.queue.get())
+
 if __name__ == '__main__':
     # Test PinBuffer
     setup()

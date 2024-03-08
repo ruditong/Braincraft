@@ -1,6 +1,7 @@
 import sys
 import time
 import re, random
+from math import sqrt
 from utils import *
 import numpy as np
 import matplotlib.pyplot as pl
@@ -151,6 +152,7 @@ class Connection(QGraphicsLineItem):
         self.weight = weight
         self.delay = delay
         self.baseWidth = 5
+        self.delayWidth = 10
         self.color = np.array([60, 60, 60])
         
         # Move line behind neurons
@@ -160,7 +162,6 @@ class Connection(QGraphicsLineItem):
         self._line = QtCore.QLineF(self.start.scenePos(), p2)
         self.custompen = QtGui.QPen(QtGui.QColor(*self.color), self.baseWidth*abs(self.weight))
         self.brush = QtGui.QBrush(QtGui.QColor(*self.color))
-
         self.setAcceptHoverEvents(True)
 
     def createTooltip(self):
@@ -219,6 +220,9 @@ class Connection(QGraphicsLineItem):
                                               QtCore.QSizeF(self.rad*2,self.rad*2)))
         else:
             unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
+            normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
+                                    self._line.normalVector().dy()/self._line.length())
+            length = self._line.length()
             if self.weight >= 0:
                 # Calculate the offset due to neuron radius and pen thickness
                 endpoint = self.end.pos() - unit *(NEURONRADIUS+self.rad) - QtCore.QPointF(self.rad, self.rad)
@@ -226,17 +230,28 @@ class Connection(QGraphicsLineItem):
             else:
                 # Calculate the offset due to neuron radius and pen thickness
                 endpoint = self.end.pos() - unit * (NEURONRADIUS+self.custompen.widthF()/2)
-                normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
-                                        self._line.normalVector().dy()/self._line.length())
+                # normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
+                #                         self._line.normalVector().dy()/self._line.length())
                 bar = QtCore.QLineF(endpoint+normal*self.rad, endpoint-normal*self.rad)
                 painter.drawLine(bar)
+            
+            # Draw delay box
+            # length = endpoint - self.start.pos()
+            # length = sqrt(length.x()**2 + length.y()**2)
+            a = self.start.pos() + unit*length*0.4 + normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
+            b = self.start.pos() + unit*length*0.6 + normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
+            c = self.start.pos() + unit*length*0.6 - normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
+            d = self.start.pos() + unit*length*0.4 - normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
+            polygon = QtGui.QPolygonF()
+            polygon << a << b << c << d
+            painter.drawPolygon(polygon)
 
     def shape(self):
         '''Calculates the bounding box for collision detection'''
         path = QtGui.QPainterPath()
         polygon = QtGui.QPolygonF()
         # Add four corner points
-        adjust = self.rad*3
+        adjust = self.rad*5
         unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
         p1, p2 = self._line.p1(), self._line.p2()+unit*adjust
         normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 

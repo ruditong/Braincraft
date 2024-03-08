@@ -1,0 +1,6 @@
+{'type': 'Input', 'id': 0, 'name': 'IN0', 'outpin': '', 'threshold': '0.5', 'tau': '0.05', 'inpin': '20', 'invert': False, 'relu': False, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': False}
+{'type': 'Input', 'id': 1, 'name': 'IN1', 'outpin': '', 'threshold': '0.5', 'tau': '0.05', 'inpin': '21', 'invert': False, 'relu': False, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': False}
+{'type': 'Integrator', 'id': 2, 'name': 'C01', 'outpin': '', 'threshold': '0.6', 'tau': '0.05', 'neuron': '0,1', 'weights': '0.5,-0.5', 'delays': '0.0,0.01', 'invert': False, 'relu': True, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': False}
+{'type': 'Input', 'id': 3, 'name': 'IN3', 'outpin': '', 'threshold': '0.5', 'tau': '0.1', 'inpin': '20', 'invert': False, 'relu': False, 'poisson': False, 'kernel': True, 'trigger': False, 'visible': True}
+{'type': 'Input', 'id': 4, 'name': 'IN4', 'outpin': '', 'threshold': '0.5', 'tau': '0.02', 'inpin': '21', 'invert': False, 'relu': False, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': True}
+{'type': 'Integrator', 'id': 5, 'name': 'C43', 'outpin': '', 'threshold': '0.4', 'tau': '0.05', 'neuron': '3,4', 'weights': '-0.5,0.5', 'delays': '0.0,0.0', 'invert': False, 'relu': True, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': True}

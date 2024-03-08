@@ -1,0 +1,3 @@
+{'type': 'Input', 'id': 0, 'name': 'in1', 'outpin': '', 'threshold': '0.5', 'tau': '0.1', 'inpin': '20', 'invert': False, 'relu': False, 'poisson': False, 'kernel': True, 'trigger': False, 'visible': True}
+{'type': 'Input', 'id': 1, 'name': 'in2', 'outpin': '', 'threshold': '0.5', 'tau': '0.1', 'inpin': '21', 'invert': False, 'relu': False, 'poisson': False, 'kernel': True, 'trigger': False, 'visible': True}
+{'type': 'Integrator', 'id': 2, 'name': 'summator', 'outpin': '', 'threshold': '0.9', 'tau': '0.1', 'neuron': '0,1', 'weights': '1.0,-1.0', 'delays': '0.0,0.01', 'invert': False, 'relu': True, 'poisson': False, 'kernel': False, 'trigger': False, 'visible': True}

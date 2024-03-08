@@ -1,12 +1,12 @@
-#!/usr/bin/python
 import sys, time
+import RPi.GPIO as GPIO
 # import thread
 from random import randrange
 
 from PyQt5 import QtGui, QtCore
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QApplication, QVBoxLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsPixmapItem, QGraphicsEllipseItem)
+    QGraphicsPixmapItem, QGraphicsEllipseItem, QHBoxLayout)
 
 class Snake(QWidget):
 	def __init__(self, xblocks=24, yblocks=24, speed=200):
@@ -66,6 +66,7 @@ class Snake(QWidget):
 		self.y = 36
 		self.lastKeyPress = 'RIGHT'
 		self.timer = QtCore.QBasicTimer()
+		self.gameTimer = QtCore.QTimer()
 		self.snakeArray = [[self.x, self.y], [self.x-12, self.y], [self.x-24, self.y]]
 		self.foodx = 0
 		self.foody = 0
@@ -81,7 +82,9 @@ class Snake(QWidget):
 
 	def start(self):
 		self.isPaused = False
-		self.timer.start(self.speed, self)
+		self.timer.start(self.speed, self)	
+		self.gameTimer.timeout.connect(self.gameEvent)
+		self.gameTimer.start(self.speed*10)
 		self.update()
 
 	def direction(self, dir):
@@ -162,16 +165,39 @@ class Snake(QWidget):
 
 	#game thread
 	def timerEvent(self, event):
-		if event.timerId() == self.timer.timerId():
-			self.direction(self.lastKeyPress)
-			self.repaint()
-		else:
-			QtGui.QFrame.timerEvent(self, event)
+		if GPIO.input(17): self.lastKeyPress = 'DOWN'
+		elif GPIO.input(27): self.lastKeyPress = 'LEFT'
+		# if event.timerId() == self.timer.timerId():
+		# 	self.direction(self.lastKeyPress)
+		# 	self.repaint()
+		# else:
+		# 	QtGui.QFrame.timerEvent(self, event)
+	
+	def gameEvent(self):
+		self.direction(self.lastKeyPress)
+		self.repaint()
+
+class GamesContainer(QWidget):
+	'''Containter to store game window and options'''
+	def __init__(self, game):
+		super().__init__()
+		self.game = game
+
+		# Build simple HLayout
+		layout = QHBoxLayout()
+		layout.addWidget(self.game)
+
+		# Add 
+
 
 def main():
+	GPIO.setmode(GPIO.BCM)
+	GPIO.setup(17, GPIO.IN)
+	GPIO.setup(27, GPIO.IN)
 	app = QApplication(sys.argv)
-	ex = Snake(30, 30, speed=100)
+	ex = Snake(30, 30, speed=10)
 	sys.exit(app.exec_())
+	GPIO.cleanup()
 	
 
 if __name__ == '__main__':
