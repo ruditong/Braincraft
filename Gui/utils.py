@@ -60,6 +60,7 @@ class DynamicBuffer():
         if self.trigger is not None:
             assert self.outpin
             GPIO.setup(self.outpin, GPIO.OUT)
+            GPIO.output(self.outpin, 0)
         else: 
             if self.outpin is not None: GPIO.cleanup(self.outpin)
 
@@ -161,7 +162,6 @@ class Integrator(DynamicBuffer):
 def relu(x, threshold=0):
     '''Linear rectifying unit'''
     if x < threshold: return 0
-    elif x > 1: return 1
     else: return x
 
 def poisson(lam, dt):

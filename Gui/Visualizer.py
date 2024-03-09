@@ -49,7 +49,8 @@ class Neuron(QGraphicsItem):
 
     def createTooltip(self):
         '''Update the tooltip'''
-        self.setToolTip(f"<h5>Neuron ID = {self.buffer.id}<hr>Type: {self.type}<br>#Connections: {len(self.lines)}")
+        typeName = self.type if self.type != 'Integrator' else 'Neuron'
+        self.setToolTip(f"<h5>Neuron ID = {self.buffer.id}<hr>Type: {typeName}<br>#Connections: {len(self.lines)}")
         
     def setColor(self, color):
         '''Set the colour of the brush'''
@@ -166,7 +167,7 @@ class Connection(QGraphicsLineItem):
 
     def createTooltip(self):
         '''Update tooltip'''
-        self.setToolTip(f"Neuron {self.start.id} --> Neuron {self.end.id}")
+        self.setToolTip(f"<h5>{self.start.id} --> {self.end.id}<hr>Weight: {self.weight}<br>Delay: {self.delay}")
 
     def setWeight(self, weight):
         '''Set weight as linewidth'''
@@ -230,18 +231,16 @@ class Connection(QGraphicsLineItem):
             else:
                 # Calculate the offset due to neuron radius and pen thickness
                 endpoint = self.end.pos() - unit * (NEURONRADIUS+self.custompen.widthF()/2)
-                # normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 
-                #                         self._line.normalVector().dy()/self._line.length())
                 bar = QtCore.QLineF(endpoint+normal*self.rad, endpoint-normal*self.rad)
                 painter.drawLine(bar)
             
             # Draw delay box
             # length = endpoint - self.start.pos()
             # length = sqrt(length.x()**2 + length.y()**2)
-            a = self.start.pos() + unit*length*0.4 + normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
-            b = self.start.pos() + unit*length*0.6 + normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
-            c = self.start.pos() + unit*length*0.6 - normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
-            d = self.start.pos() + unit*length*0.4 - normal*sqrt(self.delay)*(self.delayWidth + self.custompen.widthF()/2)
+            a = self.start.pos() + unit*length*0.4 + normal*(self.delay)**0.25*(self.delayWidth + self.custompen.widthF()/2)
+            b = self.start.pos() + unit*length*0.6 + normal*(self.delay)**0.25*(self.delayWidth + self.custompen.widthF()/2)
+            c = self.start.pos() + unit*length*0.6 - normal*(self.delay)**0.25*(self.delayWidth + self.custompen.widthF()/2)
+            d = self.start.pos() + unit*length*0.4 - normal*(self.delay)**0.25*(self.delayWidth + self.custompen.widthF()/2)
             polygon = QtGui.QPolygonF()
             polygon << a << b << c << d
             painter.drawPolygon(polygon)
@@ -251,7 +250,7 @@ class Connection(QGraphicsLineItem):
         path = QtGui.QPainterPath()
         polygon = QtGui.QPolygonF()
         # Add four corner points
-        adjust = self.rad*5
+        adjust = self.rad*3
         unit = QtCore.QPointF(self._line.unitVector().dx(), self._line.unitVector().dy())
         p1, p2 = self._line.p1(), self._line.p2()+unit*adjust
         normal = QtCore.QPointF(self._line.normalVector().dx()/self._line.length(), 

@@ -448,9 +448,10 @@ class GUI(QWidget):
         paramsList = self.triggerWindow.getOutput()
         for i in range(len(self.buffers)):
             # Get current page
-            currentParams = self.info.parameters.stackedLayout.widget(i).getParams()
-            currentParams['outpin'] = paramsList[i][0]
+            currentParams = self.info.parameters.stackedLayout.widget(i).getParams() 
             currentParams['trigger'] = paramsList[i][1]
+            if paramsList[i][1]: currentParams['outpin'] = paramsList[i][0]
+            else: currentParams['outpin'] = ''
             self.updateBuffer(i, params=currentParams)
 
         self.triggerWindow.close()
@@ -651,9 +652,10 @@ class ParameterPage(QWidget):
 
         # Depending on the type, create different page formats
         layout = QVBoxLayout()
-        if id is None: layout.addWidget(QLabel(f'Type: {self.type}'), 1)
+        typeName = self.type if self.type != 'Integrator' else 'Neuron'
+        if id is None: layout.addWidget(QLabel(f'Type: {typeName}'), 1)
         else: 
-            self.idLabel = QLabel(f"Type: {self.type}\tID: {id}")
+            self.idLabel = QLabel(f"Type: {typeName}\tID: {id}")
             layout.addWidget(self.idLabel, 1)
 
         pagelayout = QFormLayout()
@@ -664,7 +666,7 @@ class ParameterPage(QWidget):
         self.outputs['outpin'] = QLineEdit(params.get('outpin', ''))
         pagelayout.addRow(f"Output pin", self.outputs['outpin'])
         self.outputs['threshold'] = QLineEdit(params.get('threshold', '0.0'))
-        pagelayout.addRow(f"ReLU threshold", self.outputs['threshold'])
+        pagelayout.addRow(f"Threshold", self.outputs['threshold'])
         self.outputs['tau'] = QLineEdit(params.get('tau', '0.05'))
         # pagelayout.addRow(f"Kernel tau", self.outputs['tau'])
 
@@ -748,7 +750,8 @@ class ParameterPage(QWidget):
     def updateID(self, id, removed):
         '''Update ID'''
         self.id = id
-        self.idLabel.setText(f"Type: {self.type}\tID: {id}")
+        typeName = self.type if self.type != 'Integrator' else 'Neuron'
+        self.idLabel.setText(f"Type: {typeName}\tID: {id}")
         if self.type == 'Integrator':
             widget = self.outputs['neuron']
             text = find_numbers(widget.text())
@@ -777,7 +780,8 @@ class ParameterPage(QWidget):
         # Global parameters
         self.type = params['type']
         self.id = params['id']
-        self.idLabel.setText(f"Type: {self.type}\tID: {self.id}")
+        typeName = self.type if self.type != 'Integrator' else 'Neuron'
+        self.idLabel.setText(f"Type: {typeName}\tID: {self.id}")
 
         # Now loop over keys
         for key in params.keys():
@@ -1015,7 +1019,7 @@ class NeuronConstructor(QWidget):
         # Radiobutton to choose the type of neuron to create
         neurontype = QHBoxLayout()
         self.radio_input = QRadioButton("Input")
-        self.radio_integrator = QRadioButton("Integrator")
+        self.radio_integrator = QRadioButton("Neuron")
         neurontype.addWidget(self.radio_input)
         neurontype.addWidget(self.radio_integrator)
         self.radio_input.toggled.connect(lambda: self.update_selected_option(0))
