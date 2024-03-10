@@ -18,6 +18,8 @@ MAXFIRINGRATE = 50
 # GPIO stuff
 def setup():
     '''Set up environment for GPIO'''
+    # Run clean up to put all pins to INPUT state
+    GPIO.cleanup()
     GPIO.setmode(GPIO.BCM)
     return 0
 
