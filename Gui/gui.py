@@ -29,7 +29,6 @@ def find_numbers(s):
 
 def getParamsFromBuffer(buffer):
     '''Given a buffer, return a dictionary with parameters'''
-    print(buffer.outpin)
     params = {'id'          : buffer.id,
               'outpin'      : str(buffer.outpin) if buffer.outpin else '',
               'threshold'   : str(buffer.trigger) if buffer.trigger else '',
@@ -664,6 +663,7 @@ class ParameterPage(QWidget):
         self.outputs['name'] = QLineEdit(params.get('name', ''))
         pagelayout.addRow(f"Name", self.outputs['name'])
         self.outputs['outpin'] = QLineEdit(params.get('outpin', ''))
+        self.outputs['outpin'].setReadOnly(True)
         pagelayout.addRow(f"Output pin", self.outputs['outpin'])
         self.outputs['threshold'] = QLineEdit(params.get('threshold', '0.0'))
         pagelayout.addRow(f"Threshold", self.outputs['threshold'])
@@ -719,7 +719,7 @@ class ParameterPage(QWidget):
 
         self.outputs['trigger'] = QCheckBox("Trigger")
         if params.get('trigger', False): self.outputs['trigger'].setChecked(True)
-        checklayout.addWidget(self.outputs['trigger'], 2, 0)
+        # c                                                                                                                                                      hecklayout.addWidget(self.outputs['trigger'], 2, 0)
 
         self.outputs['visible'] = QCheckBox("Show")
         if params.get('visible', True): self.outputs['visible'].setChecked(True)
@@ -852,9 +852,9 @@ class Simulation(QWidget):
 
         # Create form layout
         self.pagelayout = QFormLayout()
-        self.T = QLineEdit("1")
+        self.T = QLineEdit("2")
         self.dt = QLineEdit("0.01")
-        self.ds = QLineEdit("2")
+        self.ds = QLineEdit("4")
         # self.maxfiringrate = QLineEdit("50")
         self.pagelayout.addRow(f"Time (s):", self.T)
         self.pagelayout.addRow(f"dt (s):", self.dt)
