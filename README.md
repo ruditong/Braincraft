@@ -10,5 +10,5 @@ Tools for interfacing with the "Retina in a box" (Braincraft workshop).
 
 ## Quick guide
 <a href="http://www.trenholmlab.com/">
-<img src="[/images/QR_trenholmlab.png](https://raw.githubusercontent.com/ruditong/Braincraft/main/Outreach_Handout.png)" width="200" alt=""></img>
+<img src="Outreach_Handout.png"alt=""></img>
 </a>
