@@ -9,4 +9,6 @@ Tools for interfacing with the "Retina in a box" (Braincraft workshop).
 5. Run the run_experiment.sh file or directly in shell `python ./gui.py`
 
 ## Quick guide
-!(https://raw.githubusercontent.com/ruditong/Braincraft/main/Outreach_Handout.png)
+<a href="http://www.trenholmlab.com/">
+<img src="[/images/QR_trenholmlab.png](https://raw.githubusercontent.com/ruditong/Braincraft/main/Outreach_Handout.png)" width="200" alt=""></img>
+</a>
